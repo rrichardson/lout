@@ -5,6 +5,7 @@ extern crate flate2;
 extern crate block_allocator;
 extern crate block_alloc_appendbuf;
 extern crate serde_json;
+extern crate toml;
 
 mod gelf;
 mod router;
@@ -12,6 +13,9 @@ mod buffer;
 
 use std::net::ToSocketAddrs;
 use std::str;
+use std::fs::File;
+use std::process;
+use std::env;
 use futures::Future;
 use futures::stream::Stream;
 use tokio_core::reactor::Core;
@@ -23,28 +27,34 @@ use std::time::Duration;
 use block_allocator::Allocator;
 use block_alloc_appendbuf::Appendbuf;
 use gelf;
-use router;
 use buffer;
+use file_queue;
+
+
+struct InputStream {
+    addr : SocketAddr,
+    srv_stream : Udp,
+    outputs : Vec<Output>
+}
 
 fn main() {
     let mut core = Core::new().unwrap();
-    let srvaddr = "127.0.0.1:5555".to_socket_addrs().unwrap().next().unwrap();
+    let a : Vec<String> = env::args().collect();
+    if a.length() < 2 {
+        println!("USAGE : lout <configfilepath>");
+        return -1;
+    }
+    let config = toml::Parser::new(File::open(a[1]).unwrap().read_to_string()).parse().unwrap();
 
-    let srvpool = Allocator(1024 * 8, 1000);
+    if !config.contains_key("input") || !config.contains_key("output") || !config.contains_key("route") {
+        println!("Config file should contain [input], [output] and [route] sections");
+    }
 
-    let gparser = gelf::parser::new();
-    let router = router::new(cfg);
-
-    let srv = UdpSocket::bind(&srvaddr, &core.handle()).unwrap();
-   
-    let srv2 = srv.try_clone(&core.handle()).unwrap();
-
-    let srvstream = Udp::new(srv, srvpool);
     
-    let server = srvstream.for_each(|(mut buf, addr)| { 
-        gparser.parse(buf, addr).and_then(|msg| {
-            router.route(msg)
-        });
+    let server = srvstream.filter_map(|(mut buf, addr)| {
+        gparser.parse(buf)
+    }).and_then(|msg| {
+
     });
 
     core.run(wait).unwrap();
