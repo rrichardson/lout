@@ -1,0 +1,20 @@
+[package]
+name = "lout"
+version = "0.1.0"
+authors = ["Rick Richardson <rick.richardson@gmail.com>"]
+
+[dependencies]
+log = "0.3.6"
+bytes = { git = "https://github.com/carllerche/bytes" }
+futures = "0.1"
+tokio-core = "0.1"
+tokio-timer = { git = "https://github.com/tokio-rs/tokio-timer" }
+flate2 = "0.2"
+block_allocator = "0.2.2"
+block-alloc-appendbuf = "0.1"
+serde = "0.8"
+serde_json = "0.8"
+
+[dev-dependencies]
+env_logger = "0.3.0"
+rand = "0.3.14"
