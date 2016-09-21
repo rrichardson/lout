@@ -66,10 +66,7 @@ fn main() {
         let mut outputs : Vec<Output>= route.get_outputs().drain(1..).collect();
         stream.filter_map(move |(buf, addr)| {
             parser.parse(buf)
-        })    
-    });
-   
-    let outstream = instream.for_each(move |msg| {
+        }).for_each(move |msg| {
             for mut o in outputs.iter_mut() {
                 let mut write = false;
                 if let Some(Filter::IfHasField(ref field)) = o.filter {
@@ -86,8 +83,10 @@ fn main() {
                 }
             }
             Ok(())
-        });
+        })
+    });
+   
 
-    core.run(outstream).map_err(|_| "ack!").unwrap();
+    core.run(instream).map_err(|_| "ack!").unwrap();
 }
 

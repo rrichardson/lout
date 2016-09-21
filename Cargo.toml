@@ -10,11 +10,12 @@ futures = "0.1"
 tokio-core = "0.1"
 tokio-timer = { git = "https://github.com/tokio-rs/tokio-timer" }
 flate2 = "0.2"
-block_allocator = "0.2.2"
-block-alloc-appendbuf = "0.1"
+#block_allocator = "0.2.2"
+#block-alloc-appendbuf = "0.1"
 serde = "0.8"
 serde_json = "0.8"
 toml = "0.2"
+time = "0.1"
 
 [dev-dependencies]
 env_logger = "0.3.0"
