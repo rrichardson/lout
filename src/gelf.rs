@@ -2,14 +2,13 @@
 use flate2::read::ZlibDecoder;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use block_allocator::Allocator;
-use block_alloc_appendbuf::Appendbuf;
 use serde_json::value::Value as JValue;
-
-type MessageId = u64
+use tokio_core::net::{ VecBufferPool, VecBuffer };
 
 // this is litte endian for the magic byte pair [0x1e,0x0f]
-static GelfMagic : u16 = 0x0f1e
+static GelfMagic : u16 = 0x0f1e;
+
+type MessageId = u64;
 
 #[repr(C, packed)]
 struct GelfChunkHeader {
@@ -19,14 +18,16 @@ struct GelfChunkHeader {
     seq_max : u8
 }
 
+#[derive(Debug)]
 struct Message {
-    chunks : std::collections::VecDeq<AppendBuf>,
+    chunks : VecDeque<VecBuffer>,
     size : u8,
 }
 
-struct Parser {
-    chunkmap : HashMap<MessageId, Message>
-    alloc : Allocator
+#[derive(Debug)]
+pub struct Parser{
+    chunkmap : HashMap<MessageId, Message>,
+    alloc : VecBufferPool 
 }
 
 
@@ -34,11 +35,11 @@ impl Parser {
     pub fn new() -> Parser {
         Parser {
             chunkmap : HashMap::new(),
-            alloc : Allocator::new(32 * 1024, 1000)
+            alloc : VecBufferPool::new(32 * 1024)
         }
     }
 
-    pub fn parse(&mut self, buf : AppendBuf) -> Option<JValue> {
+    pub fn parse(&self, buf : VecBuffer) -> Option<JValue> {
         //check for header
         //if header, check map to see if chunks are complete
         //if complete, cat chunks together into new buffer
@@ -47,7 +48,7 @@ impl Parser {
         //decompress
         //deserialize into Json map
         //return Value
-        unimplemented!()
+        return None
     }
 }
 

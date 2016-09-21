@@ -1,9 +1,9 @@
 
 use std::fs::File;
-use tokio_core::net::{ Buffer, BufferPool };
+use std::path::Path;
+use std::io::Result;
 
-
-type FileQueue = File;
+pub type FileQueue = File;
 
 
 pub fn new<P: AsRef<Path>>(path: P) -> Result<FileQueue> {
