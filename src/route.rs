@@ -1,17 +1,9 @@
 
 use std::net::{SocketAddr, ToSocketAddrs };
 use std::collections::HashMap;
-use std::path::Path;
 use time::Duration;
-use futures::stream::Stream;
-use tokio_core::reactor::{ Core, Handle };
-use tokio_core::net::stream::Udp;
-use tokio_core::net::{ VecBufferPool, VecBuffer };
-use tokio_core::net::{ UdpSocket };
-use bytes::alloc::BufferPool;
 use toml::Table;
 use file_queue::{self, FileQueue };
-use gelf;
 
 #[derive(Debug)]
 pub enum Filter {
@@ -41,7 +33,7 @@ pub struct Input {
 }
 
 impl Input {
-    pub fn new(name : String, cfg : &Table, handle : &Handle) -> Input {
+    pub fn new(name : String, cfg : &Table) -> Input {
         let buffer_sz = 
             if let Some(sz) = cfg.get("buffer_size") {
                 sz.as_integer().unwrap() as usize
@@ -67,7 +59,7 @@ pub struct Route {
 }
 
 impl Route {
-    pub fn with_config(config : Table, handle : &Handle) -> Routes {
+    pub fn with_config(config : Table) -> Routes {
 
         let mut route_map = HashMap::<String, Route>::new();
 
@@ -79,7 +71,7 @@ impl Route {
             let input_name = routetbl["input"].as_str().unwrap().to_string();
             let inputtbl = config["input"].as_table().unwrap();
             let routes = route_map.entry(input_name.clone()).or_insert(
-                Route { input :  Input::new(input_name.clone(), inputtbl[&input_name].as_table().unwrap(), handle),
+                Route { input :  Input::new(input_name.clone(), inputtbl[&input_name].as_table().unwrap()),
                         outputs : Vec::new() } );
             let output_name = routetbl["output"].as_str().unwrap().to_string(); //required
             let output = config["output"].as_table().unwrap();

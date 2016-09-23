@@ -2,7 +2,8 @@
 name = "lout"
 version = "0.1.0"
 dependencies = [
- "bytes 0.4.0-dev (git+https://github.com/rrichardson/bytes)",
+ "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "bytes 0.4.0-dev (git+https://github.com/carllerche/bytes)",
  "env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "flate2 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -37,7 +38,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "bytes"
 version = "0.4.0-dev"
-source = "git+https://github.com/rrichardson/bytes#bae0e58cfa174b4905fbd540a704ba7475183b7d"
+source = "git+https://github.com/carllerche/bytes#410590124431aba2af70f8926e38739b2daf2c49"
 dependencies = [
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -346,7 +347,7 @@ dependencies = [
 "checksum aho-corasick 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ca972c2ea5f742bfce5687b9aef75506a764f61d37f8f649047846a9686ddb66"
 "checksum bitflags 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "8dead7461c1127cf637931a1e50934eb6eee8bff2f74433ac7909e9afcee04a3"
 "checksum byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)" = "0fc10e8cc6b2580fda3f36eb6dc5316657f812a3df879a44a66fc9f0fdbc4855"
-"checksum bytes 0.4.0-dev (git+https://github.com/rrichardson/bytes)" = "<none>"
+"checksum bytes 0.4.0-dev (git+https://github.com/carllerche/bytes)" = "<none>"
 "checksum cfg-if 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "de1e760d7b6535af4241fca8bd8adf68e2e7edacc6b29f5d399050c5e48cf88c"
 "checksum dtoa 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0dd841b58510c9618291ffa448da2e4e0f699d984d436122372f446dae62263d"
 "checksum env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "15abd780e45b3ea4f76b4e9a26ff4843258dd8a3eed2775a0e7368c2e7936c2f"

@@ -2,6 +2,7 @@ extern crate futures;
 extern crate tokio_core;
 extern crate tokio_timer;
 extern crate flate2;
+extern crate byteorder;
 //extern crate block_allocator;
 //extern crate block_alloc_appendbuf;
 extern crate serde_json;
@@ -13,21 +14,16 @@ mod gelf;
 mod route;
 mod file_queue;
 
-use std::net::ToSocketAddrs;
 use std::str;
 use std::io;
 use std::fs::File;
 use std::process;
 use std::env;
 use std::io::{Read, Write};
-use std::rc::Rc;
-use std::iter::Map;
-use futures::Future;
 use futures::stream::{self, Stream};
-use futures::stream::IterStream;
 use tokio_core::reactor::Core;
 use tokio_core::net::stream::Udp;
-use tokio_core::net::{ VecBufferPool };
+use tokio_core::net::{ ByteBufPool };
 use tokio_core::net::{ UdpSocket };
 use tokio_timer::Timer;
 use route::{Input, Output, Route};
@@ -50,21 +46,21 @@ fn main() {
     }
 
     let handle = core.handle().clone(); 
-    let mut routes = Route::with_config(config, &handle);
-    let inputs : Vec<Result<Route, io::Error>> = routes.into_iter().map(|(k, v)| Ok(v)).collect();
+    let routes = Route::with_config(config);
+    let inputs : Vec<Result<Route, io::Error>> = routes.into_iter().map(|(_, v)| Ok(v)).collect();
     //let inputs : Vec<Route> = routes.into_iter().map(|(k, v)| v).collect();
 
     let instream =
     stream::iter(inputs.into_iter()).map(|route| {
     //inputs.into_iter().map(|route| {
         let input : Input = route.get_input();
-        let srvpool = VecBufferPool::new(input.buffer_sz);
+        let srvpool = ByteBufPool::new(input.buffer_sz);
         let sock = UdpSocket::bind(&input.addr, &handle).unwrap();
         (Udp::new(sock, srvpool), route)
     }).and_then(|(stream, mut route)| {
         let mut parser = gelf::Parser::new();
         let mut outputs : Vec<Output>= route.get_outputs().drain(1..).collect();
-        stream.filter_map(move |(buf, addr)| {
+        stream.filter_map(move |(buf, _)| {
             parser.parse(buf)
         }).for_each(move |msg| {
             for mut o in outputs.iter_mut() {
@@ -79,12 +75,12 @@ fn main() {
                 if write {
                     let mut val = serde_json::to_string(&msg).unwrap();
                     val.push('\n');
-                    o.queue.write(val.as_bytes());
+                    o.queue.write(val.as_bytes()).unwrap();
                 }
             }
             Ok(())
         })
-    });
+    }).for_each(|_| Ok(()));
    
 
     core.run(instream).map_err(|_| "ack!").unwrap();

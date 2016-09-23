@@ -16,6 +16,7 @@ serde = "0.8"
 serde_json = "0.8"
 toml = "0.2"
 time = "0.1"
+byteorder = "0.5"
 
 [dev-dependencies]
 env_logger = "0.3.0"
