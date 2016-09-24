@@ -71,7 +71,7 @@ impl Read for Message {
             return Err(io::Error::new(ErrorKind::Other, "Chunks are incomplete, cannot read"));
         }
         if self.rd_index >= self.chunks.len() {
-            return Err(io::Error::new(ErrorKind::Other, "No more data"));
+            return Ok(0);
         }
         let total : usize = self.chunks.iter().map(|t| t.as_ref().map_or(0, |c| c.0.bytes().len() - c.1 )).sum();
         let mut dst_offset = 0;
@@ -201,9 +201,9 @@ mod tests {
     use std::mem;
     use flate2::read::{GzDecoder};
     use flate2::write::{GzEncoder};
+    use serde_json::value::Value as JValue;
 
     #[test]
-    #[ignore]
     fn message_basic() {
         let mut o = [0_u8; 128];
         let mut b = MutByteBuf::with_capacity(512);
@@ -215,7 +215,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore]
     fn message_bad() {
         let mut o = [0_u8; 128];
         let mut b = MutByteBuf::with_capacity(512);
@@ -226,7 +225,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore]
     fn message_under() {
         let mut o = [0_u8; 10];
         let mut b = MutByteBuf::with_capacity(512);
@@ -238,7 +236,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn message_even() {
         let mut o = [0_u8; 30];
         let mut b = MutByteBuf::with_capacity(512);
@@ -250,7 +247,6 @@ mod tests {
     }
    
     #[test]
-    #[ignore]
     fn message_multi() {
         let mut o1 = [0_u8; 10];
         let mut o2 = [0_u8; 10];
@@ -269,11 +265,10 @@ mod tests {
         assert_eq!(10, r);
         assert_eq!(&o3[..r], b"klmnopqrst");
         let r = m.read(&mut o4);
-        assert_eq!(r.is_err(), true);
+        assert_eq!(r.unwrap(), 0);
     }
     
     #[test]
-    #[ignore]
     fn message_multi_offset() {
         let mut o1 = [0_u8; 8];
         let mut o2 = [0_u8; 8];
@@ -296,7 +291,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore]
     fn message_multi_write() {
         let mut o1 = [0_u8; 8];
         let mut o2 = [0_u8; 8];
@@ -326,7 +320,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore]
     fn message_multi_big() {
         let mut o1 = [0_u8; 512];
         let mut b1 = MutByteBuf::with_capacity(50);
@@ -394,15 +387,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn encode_basic() {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
         assert!(sz > 8000);
-
         let chunks = Encoder::encode(data.as_bytes(), 2000);
-        assert_eq!(5, chunks.len());
+        assert_eq!(2, chunks.len());
     }
     
     #[test]
@@ -466,12 +457,21 @@ mod tests {
         assert_eq!(3, chunks.len());
 
         let mut p = Parser::new();
+        let mut v = JValue::Null;
         for (i, c) in chunks.into_iter().enumerate() {
             let r = p.parse(c);
             //this should return a value only on the 3rd time through
             assert_eq!(r.is_some(), (i == 2));
+            if let Some(jv) = r { v = jv; }
         }
 
+        assert!(v.is_array());
+        assert_eq!(v.as_array().
+                     unwrap()[0].
+                     as_object().
+                     unwrap()["_id"].
+                     as_str().unwrap(), 
+                   "57e555ef3067346f32332702");
 
     }
 
