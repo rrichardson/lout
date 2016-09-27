@@ -1,3 +1,5 @@
+#![feature(drop_types_in_const)]
+
 extern crate futures;
 extern crate tokio_core;
 extern crate tokio_timer;
@@ -13,6 +15,7 @@ extern crate bytes;
 mod gelf;
 mod route;
 mod file_queue;
+mod output;
 
 use std::str;
 use std::io;
@@ -28,6 +31,8 @@ use tokio_core::net::{ UdpSocket };
 use tokio_timer::Timer;
 use route::{Input, Output, Route};
 use route::Filter;
+use serde_json::Value;
+use std::sync::mpsc::TrySendError;
 
 fn main() {
     let mut core = Core::new().unwrap();
@@ -37,6 +42,7 @@ fn main() {
         process::exit(-1);
     }
     let mut configstr = String::new();
+    println!("reading {}", a[1]);
     File::open(a[1].to_string()).unwrap().read_to_string(&mut configstr).unwrap();
     let config = toml::Parser::new(&configstr).parse().unwrap();
 
@@ -59,23 +65,25 @@ fn main() {
         (Udp::new(sock, srvpool), route)
     }).and_then(|(stream, mut route)| {
         let mut parser = gelf::Parser::new();
-        let mut outputs : Vec<Output>= route.get_outputs().drain(1..).collect();
         stream.filter_map(move |(buf, _)| {
             parser.parse(buf)
         }).for_each(move |msg| {
-            for mut o in outputs.iter_mut() {
+
+            for mut o in route.get_outputs().iter_mut() {
                 let mut write = false;
                 if let Some(Filter::IfHasField(ref field)) = o.filter {
-                    if msg.find(&field).is_some() {
-                        write = true
+                    if msg.find(field).is_some() {
+                        write = true;
                     }
                 } else {
-                    write = true
+                    write = true;
                 }
                 if write {
-                    let mut val = serde_json::to_string(&msg).unwrap();
-                    val.push('\n');
-                    o.queue.write(val.as_bytes()).unwrap();
+                    match o.channel.try_send(msg.clone()) {
+                        Ok(()) => () ,
+                        Err(TrySendError::Full(_)) => println!("Failed to send to output {}, buffer is full", o.output_name),
+                        Err(TrySendError::Disconnected(_)) => panic!("Downstream writer has failed for {}", o.output_name)
+                    };
                 }
             }
             Ok(())

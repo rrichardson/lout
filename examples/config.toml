@@ -1,0 +1,28 @@
+
+[input]
+
+[input.gelf]
+url = "localhost:5555"
+
+
+
+[output]
+
+[output.stdout]
+queue_path = "/tmp"
+url  = "localhost:12345"
+batch_secs = 0
+type = "stdout"
+buffer_max = 1000
+
+
+[route]
+
+[route.default]
+input = "gelf"
+output = "stdout"
+
+[route.event]
+input = "gelf"
+output = "stdout"
+if_has_field = "pd_event"

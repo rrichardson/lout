@@ -84,7 +84,6 @@ impl Read for Message {
                 buf[dst_offset..dst_end].copy_from_slice(&cb.bytes()[src_start..src_end]);
                 dst_offset += amt;
                 self.rd_offset += amt;
-                println!("rd_offset increased by {} to {}, curr buf len = {}, total", amt, self.rd_offset, cb.bytes().len());
                 if self.rd_offset >= (cb.bytes().len() - off) {
                     self.rd_index += 1;
                     self.rd_offset = 0;
@@ -93,7 +92,6 @@ impl Read for Message {
                 panic!("None chunk found")
             }
         }
-        println!("total bytes in message: {}, returned {}", total, dst_offset);
         return Ok(dst_offset);
     }
 }
