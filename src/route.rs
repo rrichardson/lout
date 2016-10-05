@@ -84,11 +84,11 @@ impl Route {
             let output = config["output"].as_table().unwrap();
             let outputtbl = output[&output_name].as_table().unwrap();
             let queue_path = outputtbl["queue_path"].as_str().unwrap().to_string();
-            let out_addr = outputtbl["url"].as_str().unwrap().to_socket_addrs().unwrap().next().unwrap();
             let batch_time = Duration::seconds(outputtbl["batch_secs"].as_integer().unwrap());
             let (outthread, outchan) = match outputtbl["type"].as_str().unwrap() {
                 "s3" => output::s3::spawn(outputtbl.clone()),
                 "es" => output::es::spawn(outputtbl.clone()),
+                "elasticsearch" => output::es::spawn(outputtbl.clone()),
                 "stdout" => output::stdout::spawn(outputtbl.clone()),
                 _ => panic!("{} is not a valid output type", output["type"] )
             };

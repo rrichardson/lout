@@ -1,0 +1,22 @@
+
+[input]
+
+[input.gelf]
+url = "localhost:5555"
+
+
+[output]
+
+[output.elas]
+queue_path = "/tmp"
+batch_secs = 20
+type = "elasticsearch"
+batch_max = 500
+
+
+[route]
+
+[route.default]
+input = "gelf"
+output = "elas"
+

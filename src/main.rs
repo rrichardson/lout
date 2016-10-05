@@ -11,6 +11,8 @@ extern crate serde_json;
 extern crate toml;
 extern crate time;
 extern crate bytes;
+extern crate rusoto;
+extern crate rs_es;
 
 mod gelf;
 mod route;

@@ -12,11 +12,13 @@ tokio-timer = { git = "https://github.com/tokio-rs/tokio-timer" }
 flate2 = "0.2"
 #block_allocator = "0.2.2"
 #block-alloc-appendbuf = "0.1"
-serde = "0.8"
+serde = "~0.8"
 serde_json = "0.8"
 toml = "0.2"
 time = "0.1"
 byteorder = "0.5"
+rs-es = "0.5.1"
+rusoto = {version = "0.17", features = ["s3"]}
 
 [dev-dependencies]
 env_logger = "0.3.0"
