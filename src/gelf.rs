@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use serde_json::value::Value as JValue;
 use serde_json::de;
 use tokio_core::net::{ ByteBufPool };
-use bytes::{ MutByteBuf };
+use bytes::buf::{ SliceBuf };
+use bytes::{Buf, MutBuf};
 
 // this is litte endian for the magic byte pair [0x1e,0x0f]
 static GELFMAGIC : u16 = 0x0f1e;
@@ -29,7 +30,7 @@ struct GelfChunkHeader {
 
 #[derive(Debug, Clone)]
 struct Message {
-    chunks : Vec<Option<(MutByteBuf, usize)>>,
+    chunks : Vec<Option<(SliceBuf, usize)>>,
     count : usize,
     rd_offset : usize,
     rd_index : usize
@@ -37,18 +38,18 @@ struct Message {
 
 impl Message {
     pub fn new(sz : u8) -> Message {
-        let v : Vec<Option<(MutByteBuf, usize)>> = vec![None; sz as usize];
+        let v : Vec<Option<(SliceBuf, usize)>> = vec![None; sz as usize];
         Message { chunks : v, rd_offset : 0, rd_index : 0, count : 0 }
     }
     
-    pub fn new_with_buf(sz : u8, buf : MutByteBuf, idx : u8, offset : usize) -> Message {
+    pub fn new_with_buf(sz : u8, buf : SliceBuf, idx : u8, offset : usize) -> Message {
         assert!(idx < sz);
-        let mut v : Vec<Option<(MutByteBuf, usize)>> = vec![None; sz as usize];
+        let mut v : Vec<Option<(SliceBuf, usize)>> = vec![None; sz as usize];
         v[idx as usize] = Some((buf, offset)); 
         Message { chunks : v, rd_offset : 0, rd_index : 0, count : 1 }
     }
 
-    pub fn write(&mut self, buf : MutByteBuf, idx : usize, offset : usize) -> Result<usize, io::Error> {
+    pub fn write(&mut self, buf : SliceBuf, idx : usize, offset : usize) -> Result<usize, io::Error> {
         if idx >= self.chunks.len() {
             Err(io::Error::new(ErrorKind::Other, format!("index {} out of range for chunks : {}", idx, self.chunks.len() )))
         } else {
@@ -113,7 +114,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self, buf : MutByteBuf) -> Option<JValue> {
+    pub fn parse(&mut self, buf : SliceBuf) -> Option<JValue> {
         let mut complete = true;
         let hdr_sz = mem::size_of::<GelfChunkHeader>();
         let hdr = unsafe { 
@@ -162,7 +163,7 @@ impl Parser {
 pub struct Encoder;
 
 impl Encoder {
-    pub fn encode(buf : &[u8], chunksz : usize) -> Vec<MutByteBuf> {
+    pub fn encode(buf : &[u8], chunksz : usize) -> Vec<SliceBuf> {
         let mut gze = GzEncoder::new(Vec::with_capacity(buf.len()), Compression::Fast);
         gze.write(buf).unwrap();
         let compressed = gze.finish().unwrap();
@@ -181,7 +182,7 @@ impl Encoder {
                 let hdrp = &h as *const _ as *const u8;
                 slice::from_raw_parts(hdrp, mem::size_of::<GelfChunkHeader>())
             };
-            let mut o = MutByteBuf::with_capacity(b.len() + hdr.len());
+            let mut o = SliceBuf::with_capacity(b.len() + hdr.len());
             o.write_slice(hdr);
             o.write_slice(b);
             o
@@ -193,7 +194,7 @@ impl Encoder {
 mod tests {
     use super::{Message, Parser, Encoder};
     use super::GelfChunkHeader;
-    use bytes::{Buf, MutBuf, MutByteBuf };
+    use bytes::{Buf, MutBuf, SliceBuf };
     use std::io::{Read, Write};
     use std::fs::File;
     use std::mem;
@@ -204,7 +205,7 @@ mod tests {
     #[test]
     fn message_basic() {
         let mut o = [0_u8; 128];
-        let mut b = MutByteBuf::with_capacity(512);
+        let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(1, b, 0, 0);
         let r = m.read(&mut o).unwrap();
@@ -215,7 +216,7 @@ mod tests {
     #[test]
     fn message_bad() {
         let mut o = [0_u8; 128];
-        let mut b = MutByteBuf::with_capacity(512);
+        let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(3, b, 1, 0);
         let r = m.read(&mut o);
@@ -225,7 +226,7 @@ mod tests {
     #[test]
     fn message_under() {
         let mut o = [0_u8; 10];
-        let mut b = MutByteBuf::with_capacity(512);
+        let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(1, b, 0, 0);
         let r = m.read(&mut o).unwrap();
@@ -236,7 +237,7 @@ mod tests {
     #[test]
     fn message_even() {
         let mut o = [0_u8; 30];
-        let mut b = MutByteBuf::with_capacity(512);
+        let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(1, b, 0, 0);
         let r = m.read(&mut o).unwrap();
@@ -250,7 +251,7 @@ mod tests {
         let mut o2 = [0_u8; 10];
         let mut o3 = [0_u8; 10];
         let mut o4 = [0_u8; 10];
-        let mut b = MutByteBuf::with_capacity(512);
+        let mut b = SliceBuf::with_capacity(512);
         b.write_str("0123456789abcdefghijklmnopqrst");
         let mut m = Message::new_with_buf(1, b, 0, 0);
         let r = m.read(&mut o1).unwrap();
@@ -272,7 +273,7 @@ mod tests {
         let mut o2 = [0_u8; 8];
         let mut o3 = [0_u8; 8];
         let mut o4 = [0_u8; 8]; 
-        let mut b = MutByteBuf::with_capacity(512);
+        let mut b = SliceBuf::with_capacity(512);
         b.write_str("0123456789abcdefghijklmnopqrst");
         let mut m = Message::new_with_buf(1, b, 0, 0);
         let r = m.read(&mut o1).unwrap();
@@ -294,9 +295,9 @@ mod tests {
         let mut o2 = [0_u8; 8];
         let mut o3 = [0_u8; 8];
         let mut o4 = [0_u8; 8]; 
-        let mut b1 = MutByteBuf::with_capacity(50);
-        let mut b2 = MutByteBuf::with_capacity(50);
-        let mut b3 = MutByteBuf::with_capacity(50);
+        let mut b1 = SliceBuf::with_capacity(50);
+        let mut b2 = SliceBuf::with_capacity(50);
+        let mut b3 = SliceBuf::with_capacity(50);
         b1.write_str("0123456789");
         b2.write_str("abcdefghij");
         b3.write_str("klmnopqrst");
@@ -320,9 +321,9 @@ mod tests {
     #[test]
     fn message_multi_big() {
         let mut o1 = [0_u8; 512];
-        let mut b1 = MutByteBuf::with_capacity(50);
-        let mut b2 = MutByteBuf::with_capacity(50);
-        let mut b3 = MutByteBuf::with_capacity(50);
+        let mut b1 = SliceBuf::with_capacity(50);
+        let mut b2 = SliceBuf::with_capacity(50);
+        let mut b3 = SliceBuf::with_capacity(50);
         b1.write_str("0123456789");
         b2.write_str("abcdefghij");
         b3.write_str("klmnopqrst");
@@ -340,10 +341,10 @@ mod tests {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
-        let mut b1 = MutByteBuf::with_capacity(2500);
-        let mut b2 = MutByteBuf::with_capacity(2500);
-        let mut b3 = MutByteBuf::with_capacity(2500);
-        let mut b4 = MutByteBuf::with_capacity(2500);
+        let mut b1 = SliceBuf::with_capacity(2500);
+        let mut b2 = SliceBuf::with_capacity(2500);
+        let mut b3 = SliceBuf::with_capacity(2500);
+        let mut b4 = SliceBuf::with_capacity(2500);
         b1.write_str(&data[..2500]);
         b2.write_str(&data[2500..5000]);
         b3.write_str(&data[5000..7500]);
@@ -363,10 +364,10 @@ mod tests {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
-        let mut b1 = MutByteBuf::with_capacity(2600);
-        let mut b2 = MutByteBuf::with_capacity(2600);
-        let mut b3 = MutByteBuf::with_capacity(2600);
-        let mut b4 = MutByteBuf::with_capacity(2600);
+        let mut b1 = SliceBuf::with_capacity(2600);
+        let mut b2 = SliceBuf::with_capacity(2600);
+        let mut b3 = SliceBuf::with_capacity(2600);
+        let mut b4 = SliceBuf::with_capacity(2600);
         b1.write_str("blahblahblah");
         b1.write_str(&data[..2500]);
         b2.write_str("blahblahblah");
@@ -400,10 +401,10 @@ mod tests {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
-        let mut b1 = MutByteBuf::with_capacity(2600);
-        let mut b2 = MutByteBuf::with_capacity(2600);
-        let mut b3 = MutByteBuf::with_capacity(2600);
-        let mut b4 = MutByteBuf::with_capacity(2600);
+        let mut b1 = SliceBuf::with_capacity(2600);
+        let mut b2 = SliceBuf::with_capacity(2600);
+        let mut b3 = SliceBuf::with_capacity(2600);
+        let mut b4 = SliceBuf::with_capacity(2600);
         b1.write_str("blahblahblah");
         b1.write_str(&data[..2500]);
         b2.write_str("blahblahblah");

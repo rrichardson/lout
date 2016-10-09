@@ -13,6 +13,9 @@ extern crate time;
 extern crate bytes;
 extern crate rusoto;
 extern crate rs_es;
+extern crate chrono;
+extern crate md5;
+extern crate rustc_serialize;
 
 mod gelf;
 mod route;
@@ -24,6 +27,7 @@ use std::io;
 use std::fs::File;
 use std::process;
 use std::env;
+use std::rc::Rc;
 use std::io::{Read, Write};
 use futures::stream::{self, Stream};
 use tokio_core::reactor::Core;
@@ -63,7 +67,7 @@ fn main() {
     //inputs.into_iter().map(|route| {
         let input : Input = route.get_input();
         let srvpool = ByteBufPool::new(input.buffer_sz);
-        let sock = UdpSocket::bind(&input.addr, &handle).unwrap();
+        let sock = Rc::new(UdpSocket::bind(&input.addr, &handle).unwrap());
         (Udp::new(sock, srvpool), route)
     }).and_then(|(stream, mut route)| {
         let mut parser = gelf::Parser::new();

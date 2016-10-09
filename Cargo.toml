@@ -5,9 +5,9 @@ authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 
 [dependencies]
 log = "0.3.6"
-bytes = { git = "https://github.com/carllerche/bytes" }
+bytes = { git = "https://github.com/rrichardson/bytes" }
 futures = "0.1"
-tokio-core = "0.1"
+tokio-core = { git = "https://github.com/rrichardson/tokio-core", branch = "io_streams" }
 tokio-timer = { git = "https://github.com/tokio-rs/tokio-timer" }
 flate2 = "0.2"
 #block_allocator = "0.2.2"
@@ -18,7 +18,13 @@ toml = "0.2"
 time = "0.1"
 byteorder = "0.5"
 rs-es = "0.5.1"
-rusoto = {version = "0.17", features = ["s3"]}
+chrono = "~0.2"
+md5 = "0.2.0"
+rustc-serialize = "0.3.19"
+
+[dependencies.rusoto]
+git = "https://github.com/rrichardson/rusoto"
+features = ["s3"]
 
 [dev-dependencies]
 env_logger = "0.3.0"

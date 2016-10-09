@@ -83,7 +83,6 @@ impl Route {
             let output_name = routetbl["output"].as_str().unwrap().to_string(); //required
             let output = config["output"].as_table().unwrap();
             let outputtbl = output[&output_name].as_table().unwrap();
-            let queue_path = outputtbl["queue_path"].as_str().unwrap().to_string();
             let batch_time = Duration::seconds(outputtbl["batch_secs"].as_integer().unwrap());
             let (outthread, outchan) = match outputtbl["type"].as_str().unwrap() {
                 "s3" => output::s3::spawn(outputtbl.clone()),
