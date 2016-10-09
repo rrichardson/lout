@@ -12,7 +12,7 @@ batch_secs = 20
 type = "s3"
 batch_max = 20000
 batch_directory = "./target"
-bucket = "pd.service.events"
+bucket = "dev.service.events"
 
 [route]
 

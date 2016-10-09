@@ -9,7 +9,6 @@ bytes = { git = "https://github.com/rrichardson/bytes" }
 futures = "0.1"
 tokio-core = { git = "https://github.com/rrichardson/tokio-core", branch = "io_streams" }
 tokio-timer = { git = "https://github.com/tokio-rs/tokio-timer" }
-flate2 = "0.2"
 #block_allocator = "0.2.2"
 #block-alloc-appendbuf = "0.1"
 serde = "~0.8"
@@ -21,6 +20,8 @@ rs-es = "0.5.1"
 chrono = "~0.2"
 md5 = "0.2.0"
 rustc-serialize = "0.3.19"
+#flate2 = { version = "0.2", features = ["zlib"], default-features = false }
+flate2 = "0.2"
 
 [dependencies.rusoto]
 git = "https://github.com/rrichardson/rusoto"

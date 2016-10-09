@@ -126,7 +126,7 @@ impl Parser {
         let msgbuf = 
             if hdr.magic == GELFMAGIC {
                 if hdr.seq_max == 1 {
-                    Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, hdr_sz)
+                    Some(Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, hdr_sz))
                 } else {
                     
                         { 
@@ -138,25 +138,21 @@ impl Parser {
                         } 
 
                         if complete {
-                            self.chunkmap.remove(&hdr.id).unwrap() // shouldn't ever fail
+                            self.chunkmap.remove(&hdr.id)
                         } else {
-                            Message::new(1)
+                            None
                         }
 
                 } 
 
             } else { // no header found, so we treat this as just a blob of compressed bytes
-                Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, 0)
+                Some(Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, 0))
             };
       
-        if !complete {
-            return None;
-        }
-
-        let unpacked = GzDecoder::new(msgbuf).unwrap();
-        let msg = de::from_reader(unpacked).unwrap();
-
-        return Some(msg);
+        msgbuf.map(|m| {
+            let unpacked = GzDecoder::new(m).unwrap();
+            de::from_reader(unpacked).unwrap()
+        })
     }
 }
 
@@ -194,13 +190,17 @@ impl Encoder {
 mod tests {
     use super::{Message, Parser, Encoder};
     use super::GelfChunkHeader;
-    use bytes::{Buf, MutBuf, SliceBuf };
+    use bytes::{Buf, MutBuf };
+    use bytes::buf::SliceBuf;
     use std::io::{Read, Write};
     use std::fs::File;
     use std::mem;
     use flate2::read::{GzDecoder};
     use flate2::write::{GzEncoder};
     use serde_json::value::Value as JValue;
+    use serde_json::de;
+    use test::Bencher;
+    extern crate test;
 
     #[test]
     fn message_basic() {
@@ -474,5 +474,23 @@ mod tests {
 
     }
 
+    #[bench]
+    fn bench_big_multipart(b: &mut Bencher) {
+        let mut f = File::open("tests/8ktest.json").unwrap();
+        let mut data = String::new();
+        let sz = f.read_to_string(&mut data).unwrap();
+        assert!(sz > 8000);
+
+        b.iter(|| {
+            let chunks = Encoder::encode(data.as_bytes(), 1500);
+            let mut m = Message::new(chunks.len() as u8);
+            for (i, c) in chunks.into_iter().enumerate() {
+                m.write(c, i, mem::size_of::<GelfChunkHeader>()).unwrap();
+            }
+            let unpacked = GzDecoder::new(m).unwrap();
+            let msg : JValue = de::from_reader(unpacked).unwrap();
+            test::black_box(msg);
+        });
+    } 
 }
 

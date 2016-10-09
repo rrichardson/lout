@@ -1,4 +1,5 @@
 #![feature(drop_types_in_const)]
+#![feature(test)]
 
 extern crate futures;
 extern crate tokio_core;
@@ -16,6 +17,7 @@ extern crate rs_es;
 extern crate chrono;
 extern crate md5;
 extern crate rustc_serialize;
+extern crate test;
 
 mod gelf;
 mod route;

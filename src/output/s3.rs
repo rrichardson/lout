@@ -30,7 +30,7 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
             if let Some(bm) = cfg.get("buffer_max") {
                 bm.as_integer().unwrap() as usize
             } else {
-                10000
+                1_000_000
             };
 
         let (tx, rx) = sync_channel(bufmax);
@@ -85,20 +85,13 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
 
     let mut running = true;
     let mut failcount = 0;
-    let mut connected = false;
     while running && failcount < 20 {
-        println!("Connecting to S3 at {}", region);
-        let dcp = match DefaultCredentialsProvider::new() {
-            Ok(result) => {connected = true; result},
-            Err(err) => panic!("Failed to discover AWS credentials {}", err)
-        };
-        let mut client = S3Client::new(dcp, region);
 
         let mut last = Instant::now();
         let to = Duration::from_millis(100);
         let mut count = 0;
 
-        while connected { 
+        while running { 
             match rx.recv_timeout(to) {
                 Ok(msg) => {  let msgstr = ser::to_string(&msg).unwrap_or(String::new());
                               writeln!(&batchfile, "{}", msgstr);
@@ -111,16 +104,21 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                 // deploy zie batch!
                 //
                 if count > 0 {
-                    let name = UTC::now().to_rfc3339();
+                    //hack to work around escaping bug
+                    println!("Connecting to S3 at {}", region);
+                    let dcp = match DefaultCredentialsProvider::new() {
+                        Ok(result) => { result },
+                        Err(err) => panic!("Failed to discover AWS credentials {}", err)
+                    };
+                    let mut client = S3Client::new(dcp, region);
+                    let name = UTC::now().to_rfc3339().replace(":","-").replace("+", "-");
                     let op_start = Instant::now();
                     let pos = batchfile.seek(SeekFrom::Start(0)).unwrap();
-                    println!("Seek to {}", pos);
                     match batchfile.read_to_end(&mut batch_contents) {
                         Err(why) => panic!("Error opening file to send to S3: {}", why),
                         Ok(_) => {
                             let mut req : PutObjectRequest = Default::default();
                             let hash = md5::compute(batch_contents.as_slice()).to_base64(STANDARD);
-                            println!("digest {}", hash);
                             req.content_md5 = Some(hash);
                             req.body = Some(batch_contents.as_slice());
                             req.key = name.clone();
