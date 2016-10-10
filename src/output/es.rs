@@ -1,9 +1,8 @@
 
 use toml::{Table, Value};
-use std::thread::{self, Thread, JoinHandle};
+use std::thread::{self, JoinHandle};
 use std::sync::{Arc, Once, ONCE_INIT }; 
 use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
-use tokio_core::reactor::Core;
 use serde_json::Value as JValue;
 use rs_es::Client;
 use rs_es::operations::bulk::Action;
@@ -41,12 +40,12 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
 
 fn run(cfg : Table, rx : Receiver<JValue>) {
 
-    let defaultIndex = Value::String("logs".to_string());
-    let defaultDocType = Value::String("default".to_string());
-    let defaultHost = Value::String("localhost".to_string());
-    let index =      cfg.get("index").unwrap_or(&defaultIndex).as_str().unwrap_or("logs");
-    let doctype =    cfg.get("type").unwrap_or(&defaultDocType).as_str().unwrap_or("default");
-    let host =       cfg.get("host").unwrap_or(&defaultHost).as_str().unwrap_or("localhost");
+    let default_index = Value::String("logs".to_string());
+    let default_doc_type = Value::String("default".to_string());
+    let default_host = Value::String("localhost".to_string());
+    let index =      cfg.get("index").unwrap_or(&default_index).as_str().unwrap_or("logs");
+    let doctype =    cfg.get("type").unwrap_or(&default_doc_type).as_str().unwrap_or("default");
+    let host =       cfg.get("host").unwrap_or(&default_host).as_str().unwrap_or("localhost");
     let port =       cfg.get("port").unwrap_or(&Value::Integer(9200)).as_integer().unwrap_or(9200);
     let batch_max =  cfg.get("batch_max_size").unwrap_or(&Value::Integer(1_000)).as_integer().unwrap_or(1_000);
     let batch_secs = cfg.get("batch_secs").unwrap_or(&Value::Integer(10)).as_integer().unwrap_or(10) as u64;

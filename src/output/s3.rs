@@ -1,22 +1,18 @@
 use toml::{Table, Value};
-use std::thread::{self, Thread, JoinHandle};
+use std::thread::{self, JoinHandle};
 use std::sync::{Arc, Once, ONCE_INIT }; 
 use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
-use tokio_core::reactor::Core;
 use serde_json::Value as JValue;
 use serde_json::ser;
 use rustc_serialize::base64::{ToBase64, STANDARD};
-use rs_es::Client;
-use rs_es::operations::bulk::Action;
-use rs_es::error::EsError;
 use std::time::{Duration, Instant};
 use std::sync::mpsc::RecvTimeoutError;
 use std::io::{SeekFrom, Read, Write, Seek};
-use std::fs::{OpenOptions, File};
+use std::fs::{OpenOptions};
 use std::string::String;
 use std::path::PathBuf;
 use rusoto::{DefaultCredentialsProvider, Region};
-use rusoto::s3::{S3Client, S3Error, PutObjectRequest};
+use rusoto::s3::{S3Client, PutObjectRequest};
 use chrono::UTC;
 use md5;
 
@@ -84,14 +80,14 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
     let mut batch_contents = Vec::<u8>::new();
 
     let mut running = true;
-    let mut failcount = 0;
-    while running && failcount < 20 {
+    while running {
 
         let mut last = Instant::now();
         let to = Duration::from_millis(100);
         let mut count = 0;
+        let mut failcount = 0;
 
-        while running { 
+        while running && failcount < 20 { 
             match rx.recv_timeout(to) {
                 Ok(msg) => {  let msgstr = ser::to_string(&msg).unwrap_or(String::new());
                               writeln!(&batchfile, "{}", msgstr).unwrap();
@@ -108,12 +104,12 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                     println!("Connecting to S3 at {}", region);
                     let dcp = match DefaultCredentialsProvider::new() {
                         Ok(result) => { result },
-                        Err(err) => panic!("Failed to discover AWS credentials {}", err)
+                        Err(err) => {panic!("Failed to discover AWS credentials {}", err) }
                     };
-                    let mut client = S3Client::new(dcp, region);
+                    let client = S3Client::new(dcp, region);
                     let name = UTC::now().to_rfc3339().replace(":","-").replace("+", "-");
                     let op_start = Instant::now();
-                    let pos = batchfile.seek(SeekFrom::Start(0)).unwrap();
+                    let _ = batchfile.seek(SeekFrom::Start(0)).unwrap();
                     match batchfile.read_to_end(&mut batch_contents) {
                         Err(why) => panic!("Error opening file to send to S3: {}", why),
                         Ok(_) => {
@@ -123,13 +119,13 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                             req.body = Some(batch_contents.as_slice());
                             req.key = name.clone();
                             req.bucket = bucket.to_string();
-                            match client.put_object(&req) {
-                                Err(err) => println!("Failed to put object {} message: {}", name, err),
-                                _ => { }
+                            if let Err(err) = client.put_object(&req) {
+                                 failcount += 1;
+                                 println!("Failed to put object {} message: {}", name, err);
                             }
                         }
                     }
-                    batchfile.set_len(0);
+                    batchfile.set_len(0).unwrap();
                     batch_contents.clear();
 
                     let op_duration = op_start.elapsed();
@@ -142,12 +138,13 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                 last = Instant::now();
             }
         }
+
+        if failcount >= 20 {
+            println!("Failed 20 times attempting to connect. Giving up");
+        } else {
+            println!("ES output shutting down gracefully");
+        }
     }
 
-    if failcount >= 20 {
-        println!("Failed 20 times attempting to connect. Giving up");
-    } else {
-        println!("ES output shutting down gracefully");
-    }
 }
 

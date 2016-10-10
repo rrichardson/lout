@@ -21,8 +21,9 @@ extern crate test;
 
 mod gelf;
 mod route;
-mod file_queue;
 mod output;
+
+pub use gelf::Encoder;
 
 use std::str;
 use std::io;
@@ -30,16 +31,14 @@ use std::fs::File;
 use std::process;
 use std::env;
 use std::rc::Rc;
-use std::io::{Read, Write};
+use std::io::{Read};
 use futures::stream::{self, Stream};
 use tokio_core::reactor::Core;
 use tokio_core::net::stream::Udp;
 use tokio_core::net::{ ByteBufPool };
 use tokio_core::net::{ UdpSocket };
-use tokio_timer::Timer;
-use route::{Input, Output, Route};
+use route::{Input, Route};
 use route::Filter;
-use serde_json::Value;
 use std::sync::mpsc::TrySendError;
 
 fn main() {
@@ -77,7 +76,7 @@ fn main() {
             parser.parse(buf)
         }).for_each(move |msg| {
 
-            for mut o in route.get_outputs().iter_mut() {
+            for o in route.get_outputs().iter_mut() {
                 let mut write = false;
                 if let Some(Filter::IfHasField(ref field)) = o.filter {
                     if msg.find(field).is_some() {

@@ -74,7 +74,6 @@ impl Read for Message {
         if self.rd_index >= self.chunks.len() {
             return Ok(0);
         }
-        let total : usize = self.chunks.iter().map(|t| t.as_ref().map_or(0, |c| c.0.bytes().len() - c.1 )).sum();
         let mut dst_offset = 0;
         while dst_offset < buf.len() && self.rd_index < self.chunks.len() {
             if let &Some((ref cb, ref off)) = self.chunks.get(self.rd_index).unwrap() {
@@ -93,7 +92,7 @@ impl Read for Message {
                 panic!("None chunk found")
             }
         }
-        return Ok(dst_offset);
+        Ok(dst_offset)
     }
 }
 
@@ -115,7 +114,7 @@ impl Parser {
     }
 
     pub fn parse(&mut self, buf : SliceBuf) -> Option<JValue> {
-        let mut complete = true;
+        let complete;
         let hdr_sz = mem::size_of::<GelfChunkHeader>();
         let hdr = unsafe { 
             let hdr : GelfChunkHeader = mem::uninitialized();

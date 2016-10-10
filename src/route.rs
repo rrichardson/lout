@@ -3,24 +3,16 @@ use std::net::{SocketAddr, ToSocketAddrs };
 use std::collections::HashMap;
 use time::Duration;
 use toml::Table;
-use file_queue::{self, FileQueue };
-use std::sync::mpsc::{channel, SyncSender};
+use std::sync::mpsc::{SyncSender};
 use serde_json::Value as JValue;
 use std::fmt::{self, Display, Debug, Formatter};
-use std::thread::{Thread, JoinHandle};
+use std::thread::{JoinHandle};
 use std::sync::Arc;
 use output;
 
 #[derive(Debug)]
 pub enum Filter {
     IfHasField(String)
-}
-
-#[derive(Debug)]
-pub enum OutputType {
-    S3(SocketAddr),
-    ElasticSearch(SocketAddr),
-    StdOut
 }
 
 pub struct Output {
@@ -86,8 +78,7 @@ impl Route {
             let batch_time = Duration::seconds(outputtbl["batch_secs"].as_integer().unwrap());
             let (outthread, outchan) = match outputtbl["type"].as_str().unwrap() {
                 "s3" => output::s3::spawn(outputtbl.clone()),
-                "es" => output::es::spawn(outputtbl.clone()),
-                "elasticsearch" => output::es::spawn(outputtbl.clone()),
+                "es" | "elasticsearch" => output::es::spawn(outputtbl.clone()),
                 "stdout" => output::stdout::spawn(outputtbl.clone()),
                 _ => panic!("{} is not a valid output type", output["type"] )
             };
@@ -110,7 +101,7 @@ impl Route {
         self.input.clone()
     }
 
-    pub fn get_outputs<'a>(&'a mut self) -> &'a mut Vec<Output> {
+    pub fn get_outputs(& mut self) -> &mut Vec<Output> {
         &mut self.outputs
     }
 }
