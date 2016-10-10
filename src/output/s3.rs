@@ -94,7 +94,7 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
         while running { 
             match rx.recv_timeout(to) {
                 Ok(msg) => {  let msgstr = ser::to_string(&msg).unwrap_or(String::new());
-                              writeln!(&batchfile, "{}", msgstr);
+                              writeln!(&batchfile, "{}", msgstr).unwrap();
                               count += 1; 
                 },
                 Err(RecvTimeoutError::Disconnected) => { running = false; println!("Main loop channel disconnected. Shutting down."); }
@@ -150,12 +150,4 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
         println!("ES output shutting down gracefully");
     }
 }
-
-pub fn to_hex_string(bytes: &[u8], outsz : usize) -> String { unsafe {
-    let mut outstr = Vec::with_capacity(outsz);
-    for b in bytes.iter() {
-        write!(&mut outstr, "{:02X}", b);
-    }
-    String::from_utf8_unchecked(outstr)
-} }
 
