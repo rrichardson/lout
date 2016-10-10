@@ -67,11 +67,11 @@ This will deposit a release binary in :
 To build a new docker image with that new binary, run: 
 
 ```
-docker build -t git.permissiondata.com:4567/devops/lout .
+docker build -t lout .
 ```
 
 It works best when this binary is given net=host access. This is its intended config when running in k8s, give it a try using this command: 
 
 ```
-docker run -e "AWS_ACCESS_KEY_ID=<Some S3 capable key>" -e "AWS_SECRET_ACCESS_KEY=<secret for said key>" --net=host --privileged=true -v $PWD:/here -w /here git.permissiondata:4567/devops/lout
+docker run -e "AWS_ACCESS_KEY_ID=<Some S3 capable key>" -e "AWS_SECRET_ACCESS_KEY=<secret for said key>" --net=host --privileged=true -v $PWD:/here -w /here lout
 ```
