@@ -70,13 +70,13 @@ fn main() {
         let srvpool = ByteBufPool::new(input.buffer_sz);
         let sock = Rc::new(UdpSocket::bind(&input.addr, &handle).unwrap());
         (Udp::new(sock, srvpool), route)
-    }).and_then(|(stream, mut route)| {
+    }).and_then(|(stream, route)| {
         let mut parser = gelf::Parser::new();
         stream.filter_map(move |(buf, _)| {
             parser.parse(buf)
         }).for_each(move |msg| {
 
-            for o in route.get_outputs().iter_mut() {
+            for o in route.get_outputs().iter() {
                 let mut write = false;
                 if let Some(Filter::IfHasField(ref field)) = o.filter {
                     if msg.find(field).is_some() {

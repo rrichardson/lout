@@ -101,8 +101,8 @@ impl Route {
         self.input.clone()
     }
 
-    pub fn get_outputs(& mut self) -> &mut Vec<Output> {
-        &mut self.outputs
+    pub fn get_outputs(& self) -> &Vec<Output> {
+         &self.outputs
     }
 }
 
