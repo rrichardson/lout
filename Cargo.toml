@@ -22,6 +22,13 @@ md5 = "0.2.0"
 rustc-serialize = "0.3.19"
 #flate2 = { version = "0.2", features = ["zlib"], default-features = false }
 flate2 = "0.2"
+hyper = "~0.9"
+
+[profile.release]
+lto = true
+
+[profile.bench]
+lto = true
 
 [dependencies.rusoto]
 git = "https://github.com/rrichardson/rusoto"

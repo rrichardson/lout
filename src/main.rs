@@ -18,6 +18,7 @@ extern crate chrono;
 extern crate md5;
 extern crate rustc_serialize;
 extern crate test;
+extern crate hyper;
 
 mod gelf;
 mod route;
@@ -51,7 +52,13 @@ fn main() {
     let mut configstr = String::new();
     println!("reading {}", a[1]);
     File::open(a[1].to_string()).unwrap().read_to_string(&mut configstr).unwrap();
-    let config = toml::Parser::new(&configstr).parse().unwrap();
+    let mut tp = toml::Parser::new(&configstr);
+    let config = if let Some(c) = tp.parse() {
+        c
+    } else {
+        println!("Attempted to load {}", configstr);
+        panic!("Error loading config : {:#?}", tp.errors);
+    };
 
     if !config.contains_key("input") || !config.contains_key("output") || !config.contains_key("route") {
         println!("Config file should contain [input], [output] and [route] sections");
@@ -89,7 +96,7 @@ fn main() {
                     match o.channel.try_send(msg.clone()) {
                         Ok(()) => () ,
                         Err(TrySendError::Full(_)) => println!("Failed to send to output {}, buffer is full", o.output_name),
-                        Err(TrySendError::Disconnected(_)) => panic!("Downstream writer has failed for {}", o.output_name)
+                        Err(TrySendError::Disconnected(_)) => panic!("Downstream reader has failed for {}", o.output_name)
                     };
                 }
             }

@@ -1,7 +1,6 @@
 
 use std::net::{SocketAddr, ToSocketAddrs };
 use std::collections::HashMap;
-use time::Duration;
 use toml::Table;
 use std::sync::mpsc::{SyncSender};
 use serde_json::Value as JValue;
@@ -19,7 +18,6 @@ pub struct Output {
     pub output_name : String,
     pub route_name : String,
     pub filter : Option<Filter>,
-    pub batch_time : Duration,
     pub channel : SyncSender<JValue>,
     pub thread_handle : Arc<JoinHandle<()>>
 }
@@ -75,19 +73,17 @@ impl Route {
             let output_name = routetbl["output"].as_str().unwrap().to_string(); //required
             let output = config["output"].as_table().unwrap();
             let outputtbl = output[&output_name].as_table().unwrap();
-            let batch_time = Duration::seconds(outputtbl["batch_secs"].as_integer().unwrap());
-            let (outthread, outchan) = match outputtbl["type"].as_str().unwrap() {
-                "s3" => output::s3::spawn(outputtbl.clone()),
-                "es" | "elasticsearch" => output::es::spawn(outputtbl.clone()),
-                "stdout" => output::stdout::spawn(outputtbl.clone()),
-                _ => panic!("{} is not a valid output type", output["type"] )
+            let (outthread, outchan) = match outputtbl.get("type").map(|t| t.as_str().unwrap()) {
+                Some("s3") => output::s3::spawn(outputtbl.clone()),
+                Some("es") | Some("elasticsearch") => output::es::spawn(outputtbl.clone()),
+                Some("stdout") => output::stdout::spawn(outputtbl.clone()),
+                _ => panic!("{} is not found or is not a valid output type", "route::type" )
             };
             if let Some(field) = routetbl.get("if_has_field") {
                 filter = Some(Filter::IfHasField(field.as_str().unwrap().to_string()));
             }
 
-            let output = Output { batch_time : batch_time,
-                                  output_name : output_name,
+            let output = Output { output_name : output_name,
                                   route_name  : name.clone(),
                                   filter      : filter,
                                   thread_handle : outthread,
@@ -109,14 +105,14 @@ impl Route {
 
 impl Debug for Output {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Output {{ output_name : {}, route_name : {}, filter : {:?}, batch_time : {}",
-                self.output_name, self.route_name, self.filter, self.batch_time)
+        write!(f, "Output {{ output_name : {}, route_name : {}, filter : {:?}",
+                self.output_name, self.route_name, self.filter )
     } 
 }
 
 impl Display for Output {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Output {{ output_name : {}, route_name : {}, filter : {:?}, batch_time : {}",
-                self.output_name, self.route_name, self.filter, self.batch_time)
+        write!(f, "Output {{ output_name : {}, route_name : {}, filter : {:?}",
+                self.output_name, self.route_name, self.filter )
     } 
 }

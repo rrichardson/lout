@@ -9,10 +9,27 @@ use rs_es::operations::bulk::Action;
 use rs_es::error::EsError;
 use std::time::{Duration, Instant};
 use std::sync::mpsc::RecvTimeoutError;
+use std::env;
+use hyper::client as hyperclient;
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
 static mut CHANNEL: Option<SyncSender<JValue>> = None;
 static THREAD: Once = ONCE_INIT;
+
+static IDXQUERY : &'static str = r#"
+{
+  "mappings": {
+    "elasticsearch": {
+      "properties": {
+        "event_id": {
+          "type":  "string",
+          "index": "not_analyzed" 
+        }
+      }
+    }
+  }
+}'
+"#;
 
 pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
     THREAD.call_once(|| {
@@ -45,18 +62,37 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
     let default_host = Value::String("localhost".to_string());
     let index =      cfg.get("index").unwrap_or(&default_index).as_str().unwrap_or("logs");
     let doctype =    cfg.get("type").unwrap_or(&default_doc_type).as_str().unwrap_or("default");
-    let host =       cfg.get("host").unwrap_or(&default_host).as_str().unwrap_or("localhost");
+    let cfghost =       cfg.get("host").unwrap_or(&default_host).as_str().unwrap_or("localhost");
     let port =       cfg.get("port").unwrap_or(&Value::Integer(9200)).as_integer().unwrap_or(9200);
     let batch_max =  cfg.get("batch_max_size").unwrap_or(&Value::Integer(1_000)).as_integer().unwrap_or(1_000);
     let batch_secs = cfg.get("batch_secs").unwrap_or(&Value::Integer(10)).as_integer().unwrap_or(10) as u64;
     let batch_dur = Duration::from_secs(batch_secs);
+    let host_env_var = cfg.get("host_env_var").map(|h| h.as_str().unwrap());
+
+    let host = if let Some(key) = host_env_var {
+        match env::var(key) {
+            Ok(ip) => ip,
+            Err(e) => panic!("couldn't find {} in env: {}", key, e),
+        }
+    } else {
+        cfghost.to_owned()
+    };
 
     let mut running = true;
     let mut failcount = 0;
     let mut connected = false;
+
+    //Manually create the elasticsearch index. Its ok if this fails, as it probably means the index
+    //already exists.
+    let client = hyperclient::Client::new();
+    let url = format!("http://{}:{}/{}", host, port, index);
+    if let Err(e) = client.put(&url).body(IDXQUERY).send() {
+        println!("Failed to create index : {}", e);
+    }
+
     while running && failcount < 20 {
         println!("Connecting to ES at {}:{}", host, port);
-        let mut client = Client::new(host, port as u32);
+        let mut client = Client::new(&host, port as u32);
 
         match client.open_index(index) {
             Err(EsError::EsError(err)) => { failcount += 1; println!("Error opening index: {}", err)},

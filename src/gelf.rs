@@ -3,6 +3,7 @@ use std::mem;
 use std::slice;
 use std::cmp::min;
 use std::ptr;
+use std::time::Instant;
 use std::io::{self, Read, Write, ErrorKind};
 use flate2::read::GzDecoder;
 use flate2::write::{GzEncoder};
@@ -33,20 +34,23 @@ struct Message {
     chunks : Vec<Option<(SliceBuf, usize)>>,
     count : usize,
     rd_offset : usize,
-    rd_index : usize
+    rd_index : usize,
+    timestamp : Instant
 }
 
 impl Message {
     pub fn new(sz : u8) -> Message {
         let v : Vec<Option<(SliceBuf, usize)>> = vec![None; sz as usize];
-        Message { chunks : v, rd_offset : 0, rd_index : 0, count : 0 }
+        Message { chunks : v, rd_offset : 0, rd_index : 0, count : 0, timestamp : Instant::now() }
     }
     
-    pub fn new_with_buf(sz : u8, buf : SliceBuf, idx : u8, offset : usize) -> Message {
-        assert!(idx < sz);
+    pub fn new_with_buf(sz : u8, buf : SliceBuf, idx : u8, offset : usize) -> Option<Message> {
+        if sz <= idx {
+            return None
+        }
         let mut v : Vec<Option<(SliceBuf, usize)>> = vec![None; sz as usize];
         v[idx as usize] = Some((buf, offset)); 
-        Message { chunks : v, rd_offset : 0, rd_index : 0, count : 1 }
+        Some(Message { chunks : v, rd_offset : 0, rd_index : 0, count : 1, timestamp : Instant::now() })
     }
 
     pub fn write(&mut self, buf : SliceBuf, idx : usize, offset : usize) -> Result<usize, io::Error> {
@@ -125,7 +129,7 @@ impl Parser {
         let msgbuf = 
             if hdr.magic == GELFMAGIC {
                 if hdr.seq_max == 1 {
-                    Some(Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, hdr_sz))
+                    Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, hdr_sz)
                 } else {
                     
                         { 
@@ -145,13 +149,12 @@ impl Parser {
                 } 
 
             } else { // no header found, so we treat this as just a blob of compressed bytes
-                Some(Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, 0))
+                Message::new_with_buf(1, buf, 0, 0)
             };
       
-        msgbuf.map(|m| {
-            let unpacked = GzDecoder::new(m).unwrap();
-            de::from_reader(unpacked).unwrap()
-        })
+        msgbuf
+            .and_then(|m| GzDecoder::new(m).ok())
+            .and_then(|u| de::from_reader(u).ok())
     }
 }
 
@@ -206,7 +209,7 @@ mod tests {
         let mut o = [0_u8; 128];
         let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
-        let mut m = Message::new_with_buf(1, b, 0, 0);
+        let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o).unwrap();
         assert_eq!(30, r);
         assert_eq!(&o[..r], b"012345678901234567890123456789");
@@ -217,7 +220,7 @@ mod tests {
         let mut o = [0_u8; 128];
         let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
-        let mut m = Message::new_with_buf(3, b, 1, 0);
+        let mut m = Message::new_with_buf(3, b, 1, 0).unwrap();
         let r = m.read(&mut o);
         assert_eq!(r.is_err(), true);
     }
@@ -227,7 +230,7 @@ mod tests {
         let mut o = [0_u8; 10];
         let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
-        let mut m = Message::new_with_buf(1, b, 0, 0);
+        let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o).unwrap();
         assert_eq!(10, r);
         assert_eq!(&o[..r], b"0123456789");
@@ -238,7 +241,7 @@ mod tests {
         let mut o = [0_u8; 30];
         let mut b = SliceBuf::with_capacity(512);
         b.write_str("012345678901234567890123456789");
-        let mut m = Message::new_with_buf(1, b, 0, 0);
+        let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o).unwrap();
         assert_eq!(30, r);
         assert_eq!(&o[..r], b"012345678901234567890123456789");
@@ -252,7 +255,7 @@ mod tests {
         let mut o4 = [0_u8; 10];
         let mut b = SliceBuf::with_capacity(512);
         b.write_str("0123456789abcdefghijklmnopqrst");
-        let mut m = Message::new_with_buf(1, b, 0, 0);
+        let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o1).unwrap();
         assert_eq!(10, r);
         assert_eq!(&o1[..r], b"0123456789");
@@ -274,7 +277,7 @@ mod tests {
         let mut o4 = [0_u8; 8]; 
         let mut b = SliceBuf::with_capacity(512);
         b.write_str("0123456789abcdefghijklmnopqrst");
-        let mut m = Message::new_with_buf(1, b, 0, 0);
+        let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o1).unwrap();
         assert_eq!(8, r);
         assert_eq!(&o1[..r], b"01234567");
@@ -300,7 +303,7 @@ mod tests {
         b1.write_str("0123456789");
         b2.write_str("abcdefghij");
         b3.write_str("klmnopqrst");
-        let mut m = Message::new_with_buf(3, b1, 0, 0);
+        let mut m = Message::new_with_buf(3, b1, 0, 0).unwrap();
         m.write(b2, 1, 0).unwrap();
         m.write(b3, 2, 0).unwrap();
         let r = m.read(&mut o1).unwrap();
@@ -326,7 +329,7 @@ mod tests {
         b1.write_str("0123456789");
         b2.write_str("abcdefghij");
         b3.write_str("klmnopqrst");
-        let mut m = Message::new_with_buf(3, b1, 0, 0);
+        let mut m = Message::new_with_buf(3, b1, 0, 0).unwrap();
         m.write(b2, 1, 0).unwrap();
         m.write(b3, 2, 0).unwrap();
         let r = m.read(&mut o1).unwrap();
@@ -348,7 +351,7 @@ mod tests {
         b2.write_str(&data[2500..5000]);
         b3.write_str(&data[5000..7500]);
         b4.write_str(&data[7500..]);
-        let mut m = Message::new_with_buf(4, b1, 0, 0);
+        let mut m = Message::new_with_buf(4, b1, 0, 0).unwrap();
         m.write(b2, 1, 0).unwrap();
         m.write(b3, 2, 0).unwrap();
         m.write(b4, 3, 0).unwrap();
@@ -375,7 +378,7 @@ mod tests {
         b3.write_str(&data[5000..7500]);
         b4.write_str("blahblahblah");
         b4.write_str(&data[7500..]);
-        let mut m = Message::new_with_buf(4, b1, 0, 12);
+        let mut m = Message::new_with_buf(4, b1, 0, 12).unwrap();
         m.write(b2, 1, 12).unwrap();
         m.write(b3, 2, 12).unwrap();
         m.write(b4, 3, 12).unwrap();
@@ -412,7 +415,7 @@ mod tests {
         b3.write_str(&data[5000..7500]);
         b4.write_str("blahblahblah");
         b4.write_str(&data[7500..]);
-        let mut m = Message::new_with_buf(4, b1, 0, 12);
+        let mut m = Message::new_with_buf(4, b1, 0, 12).unwrap();
         m.write(b2, 1, 12).unwrap();
         m.write(b3, 2, 12).unwrap();
         m.write(b4, 3, 12).unwrap();

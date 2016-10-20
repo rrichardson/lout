@@ -1,5 +1,5 @@
 
-use toml::Table;
+use toml::{Table, Value};
 use std::thread::{self, JoinHandle};
 use std::sync::{Arc, Once, ONCE_INIT }; 
 use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
@@ -36,17 +36,26 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
 }
 
 
-fn run(_ : Table, rx : Receiver<JValue>, tid : usize) {
-    let mut count = 0_u64;
-    let mut last = Instant::now();
-    loop { 
-        let _ = rx.recv().unwrap();
-        count += 1;
-        let delta = Instant::now() - last;
-        if delta > Duration::new(1, 0) {
-            last = Instant::now();
-            println!("{} -- {} msgs / sec", tid, count);
-            count = 0;
+fn run(cfg : Table, rx : Receiver<JValue>, tid : usize) {
+
+    let brief =      cfg.get("brief").unwrap_or(&Value::Boolean(false)).as_bool().unwrap_or(false);
+
+    if brief {
+        let mut count = 0_u64;
+        let mut last = Instant::now();
+        loop { 
+            let _ = rx.recv().unwrap();
+            count += 1;
+            if last.elapsed() > Duration::new(1, 0) {
+                last = Instant::now();
+                println!("{} -- {} msgs / sec", tid, count);
+                count = 0;
+            }
+        }
+    } else {
+        loop {
+            let msg = rx.recv().unwrap();
+            println!("{}", msg);
         }
     }
 
