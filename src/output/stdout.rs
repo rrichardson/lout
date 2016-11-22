@@ -7,11 +7,11 @@ use serde_json::Value as JValue;
 use std::time::{Duration, Instant};
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
-static mut CHANNEL: Option<SyncSender<JValue>> = None;
+static mut CHANNEL: Option<SyncSender<Arc<JValue>>> = None;
 static mut COUNT: usize = 0;
 static THREAD: Once = ONCE_INIT;
 
-pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
+pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<Arc<JValue>>) {
     THREAD.call_once(|| {
         let bufmax = 
             if let Some(bm) = cfg.get("buffer_max") {
@@ -36,7 +36,7 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
 }
 
 
-fn run(cfg : Table, rx : Receiver<JValue>, tid : usize) {
+fn run(cfg : Table, rx : Receiver<Arc<JValue>>, tid : usize) {
 
     let brief =      cfg.get("brief").unwrap_or(&Value::Boolean(false)).as_bool().unwrap_or(false);
 

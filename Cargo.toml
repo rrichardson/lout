@@ -4,11 +4,11 @@ version = "0.1.0"
 authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 
 [dependencies]
-log = "0.3.6"
-bytes = { git = "https://github.com/rrichardson/bytes" }
-futures = "0.1"
-tokio-core = { git = "https://github.com/rrichardson/tokio-core", branch = "io_streams" }
-tokio-timer = { git = "https://github.com/tokio-rs/tokio-timer" }
+log = "0.3"
+env_logger = "*"
+bytes = { git = "https://github.com/carllerche/bytes" }
+futures = { git = "https://github.com/alexcrichton/futures-rs" }
+tokio-core = { git = "https://github.com/rrichardson/tokio-core", branch = "udp_frame" }
 #block_allocator = "0.2.2"
 #block-alloc-appendbuf = "0.1"
 serde = "~0.8"

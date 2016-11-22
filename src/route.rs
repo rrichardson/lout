@@ -18,7 +18,7 @@ pub struct Output {
     pub output_name : String,
     pub route_name : String,
     pub filter : Option<Filter>,
-    pub channel : SyncSender<JValue>,
+    pub channel : SyncSender<Arc<JValue>>,
     pub thread_handle : Arc<JoinHandle<()>>
 }
 

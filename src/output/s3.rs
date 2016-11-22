@@ -17,10 +17,10 @@ use chrono::UTC;
 use md5;
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
-static mut CHANNEL: Option<SyncSender<JValue>> = None;
+static mut CHANNEL: Option<SyncSender<Arc<JValue>>> = None;
 static THREAD: Once = ONCE_INIT;
 
-pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
+pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<Arc<JValue>>) {
     THREAD.call_once(|| {
         let bufmax = 
             if let Some(bm) = cfg.get("buffer_max") {
@@ -61,7 +61,7 @@ fn parse_region(region : &str) -> Option<Region> {
     }
 }
 
-fn run(cfg : Table, rx : Receiver<JValue>) {
+fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
 
     let default_region = Value::String("us-east-1".to_string());
     let default_bucket = Value::String("logs".to_string());
@@ -75,7 +75,7 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
 
     let mut batchpath = PathBuf::from(batch_directory);
     batchpath.push("s3batch");
-    println!("Creating batch file at {:?}", batchpath);
+    error!("Creating batch file at {:?}", batchpath);
     let mut batchfile = OpenOptions::new().read(true).append(true).create(true).open(batchpath).unwrap();
     let mut batch_contents = Vec::<u8>::new();
 
@@ -93,7 +93,7 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                               writeln!(&batchfile, "{}", msgstr).unwrap();
                               count += 1; 
                 },
-                Err(RecvTimeoutError::Disconnected) => { running = false; println!("Main loop channel disconnected. Shutting down."); }
+                Err(RecvTimeoutError::Disconnected) => { running = false; error!("Main loop channel disconnected. Shutting down."); }
                 Err(RecvTimeoutError::Timeout) => {},
             }
             if last.elapsed() > batch_dur || count > batch_max {
@@ -101,7 +101,7 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                 //
                 if count > 0 {
                     //hack to work around escaping bug
-                    println!("Connecting to S3 at {}", region);
+                    error!("Connecting to S3 at {}", region);
                     let dcp = match DefaultCredentialsProvider::new() {
                         Ok(result) => { result },
                         Err(err) => {panic!("Failed to discover AWS credentials {}", err) }
@@ -121,7 +121,7 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                             req.bucket = bucket.to_string();
                             if let Err(err) = client.put_object(&req) {
                                  failcount += 1;
-                                 println!("Failed to put object {} message: {}", name, err);
+                                 error!("Failed to put object {} message: {}", name, err);
                             }
                         }
                     }
@@ -129,9 +129,9 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                     batch_contents.clear();
 
                     let op_duration = op_start.elapsed();
-                    println!("Batch operation took {:?}", op_duration);
+                    error!("Batch operation took {:?}", op_duration);
                     if op_duration > batch_dur {
-                        println!("Batch operation took {:?} which is longer than the batch delay {:?}", op_duration, batch_dur);
+                        error!("Batch operation took {:?} which is longer than the batch delay {:?}", op_duration, batch_dur);
                     }
                     count = 0;
                 }
@@ -140,9 +140,9 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
         }
 
         if failcount >= 20 {
-            println!("Failed 20 times attempting to connect. Giving up");
+            error!("Failed 20 times attempting to connect. Giving up");
         } else {
-            println!("ES output shutting down gracefully");
+            error!("ES output shutting down gracefully");
         }
     }
 

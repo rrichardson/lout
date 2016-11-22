@@ -13,7 +13,7 @@ use std::env;
 use hyper::client as hyperclient;
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
-static mut CHANNEL: Option<SyncSender<JValue>> = None;
+static mut CHANNEL: Option<SyncSender<Arc<JValue>>> = None;
 static THREAD: Once = ONCE_INIT;
 
 static IDXQUERY : &'static str = r#"
@@ -31,7 +31,7 @@ static IDXQUERY : &'static str = r#"
 }'
 "#;
 
-pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
+pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<Arc<JValue>>) {
     THREAD.call_once(|| {
         let bufmax = 
             if let Some(bm) = cfg.get("buffer_max") {
@@ -55,7 +55,7 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<JValue>) {
 }
 
 
-fn run(cfg : Table, rx : Receiver<JValue>) {
+fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
 
     let default_index = Value::String("logs".to_string());
     let default_doc_type = Value::String("default".to_string());
@@ -87,19 +87,19 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
     let client = hyperclient::Client::new();
     let url = format!("http://{}:{}/{}", host, port, index);
     if let Err(e) = client.put(&url).body(IDXQUERY).send() {
-        println!("Failed to create index : {}", e);
+        error!("Failed to create index : {}", e);
     }
 
     while running && failcount < 20 {
-        println!("Connecting to ES at {}:{}", host, port);
+        error!("Connecting to ES at {}:{}", host, port);
         let mut client = Client::new(&host, port as u32);
 
         match client.open_index(index) {
-            Err(EsError::EsError(err)) => { failcount += 1; println!("Error opening index: {}", err)},
-            Err(EsError::EsServerError(err)) => { failcount += 1; println!("Error opening index: {}", err)},
-            Err(EsError::HttpError(err)) => { failcount += 1; println!("Error connecting to ES: {}", err)},
-            Err(EsError::IoError(err)) => { failcount += 1; println!("Error connecting to ES: {}", err)},
-            Err(EsError::JsonError(err)) => println!("Error sending to ES, malformed JSON: {}", err),
+            Err(EsError::EsError(err)) => { failcount += 1; error!("Error opening index: {}", err)},
+            Err(EsError::EsServerError(err)) => { failcount += 1; error!("Error opening index: {}", err)},
+            Err(EsError::HttpError(err)) => { failcount += 1; error!("Error connecting to ES: {}", err)},
+            Err(EsError::IoError(err)) => { failcount += 1; error!("Error connecting to ES: {}", err)},
+            Err(EsError::JsonError(err)) => error!("Error sending to ES, malformed JSON: {}", err),
             _ => { connected = true}
         }
         let mut last = Instant::now();
@@ -108,10 +108,10 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
         let mut batch = Vec::<Action<JValue>>::with_capacity(batch_max as usize);
         while connected { 
             match rx.recv_timeout(to) {
-                Ok(msg) => {  batch.push(Action::index(msg).with_doc_type(doctype));
+                Ok(msg) => {  batch.push(Action::index((*msg).clone()).with_doc_type(doctype));
                               count += 1; 
                 },
-                Err(RecvTimeoutError::Disconnected) => { running = false; println!("Main loop channel disconnected. Shutting down."); }
+                Err(RecvTimeoutError::Disconnected) => { running = false; error!("Main loop channel disconnected. Shutting down."); }
                 Err(RecvTimeoutError::Timeout) => {},
             }
             if last.elapsed() > batch_dur || count > batch_max {
@@ -120,17 +120,17 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
                 if !batch.is_empty() {
                     let op_start = Instant::now();
                     match client.bulk(&batch).with_index(index).send() {
-                        Err(EsError::EsError(err)) => println!("Error in bulk indexing operation: {}", err),
-                        Err(EsError::EsServerError(err)) => println!("Error in bulk indexing operation: {}", err),
-                        Err(EsError::HttpError(err)) => { connected = false; failcount += 1; println!("Error sending data to ES: {}", err)},
-                        Err(EsError::IoError(err)) => { connected = false; failcount += 1; println!("Error sending data to ES: {}", err)},
-                        Err(EsError::JsonError(err)) => println!("Error sending to ES, malformed JSON: {}", err),
+                        Err(EsError::EsError(err)) => error!("Error in bulk indexing operation: {}", err),
+                        Err(EsError::EsServerError(err)) => error!("Error in bulk indexing operation: {}", err),
+                        Err(EsError::HttpError(err)) => { connected = false; failcount += 1; error!("Error sending data to ES: {}", err)},
+                        Err(EsError::IoError(err)) => { connected = false; failcount += 1; error!("Error sending data to ES: {}", err)},
+                        Err(EsError::JsonError(err)) => error!("Error sending to ES, malformed JSON: {}", err),
                         _ => {}
                     }
                     let op_duration = op_start.elapsed();
-                    println!("Batch operation took {:?}", op_duration);
+                    error!("Batch operation took {:?}", op_duration);
                     if op_duration > batch_dur {
-                        println!("Batch operation took {:?} which is longer than the batch delay {:?}", op_duration, batch_dur);
+                        error!("Batch operation took {:?} which is longer than the batch delay {:?}", op_duration, batch_dur);
                     }
                     batch.clear();
                     count = 0;
@@ -141,9 +141,9 @@ fn run(cfg : Table, rx : Receiver<JValue>) {
     }
 
     if failcount >= 20 {
-        println!("Failed 20 times attempting to connect. Giving up");
+        error!("Failed 20 times attempting to connect. Giving up");
     } else {
-        println!("ES output shutting down gracefully");
+        error!("ES output shutting down gracefully");
     }
 }
 
