@@ -7,8 +7,8 @@ authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 log = "0.3"
 env_logger = "*"
 bytes = { git = "https://github.com/carllerche/bytes" }
-futures = { git = "https://github.com/alexcrichton/futures-rs" }
-tokio-core = { git = "https://github.com/rrichardson/tokio-core", branch = "udp_frame" }
+futures = "0.1.6"
+tokio-core = { git = "https://github.com/tokio-rs/tokio-core" }
 #block_allocator = "0.2.2"
 #block-alloc-appendbuf = "0.1"
 serde = "~0.8"
@@ -20,9 +20,10 @@ rs-es = "0.5.1"
 chrono = "~0.2"
 md5 = "0.2.0"
 rustc-serialize = "0.3.19"
-#flate2 = { version = "0.2", features = ["zlib"], default-features = false }
 flate2 = "0.2"
 hyper = "~0.9"
+snap = "0.1"
+
 
 [profile.release]
 lto = true

@@ -21,6 +21,8 @@ extern crate rustc_serialize;
 extern crate test;
 extern crate hyper;
 extern crate env_logger;
+extern crate snap;
+
 mod gelf;
 mod route;
 mod output;
@@ -38,14 +40,13 @@ use futures::stream::{self, Stream};
 use route::{Input, Route};
 use route::Filter;
 use std::sync::mpsc::TrySendError;
-use tokio_core::io::{CodecUdp};
-use tokio_core::net::{UdpSocket};
+use tokio_core::net::{UdpSocket, UdpCodec};
 use tokio_core::reactor::{Core};
 use bytes::{ByteBuf, Buf};
 
 struct ByteBufCodec;
 
-impl CodecUdp for ByteBufCodec {
+impl UdpCodec for ByteBufCodec {
     type In = (SocketAddr, ByteBuf);
     type Out = (SocketAddr, ByteBuf);
 
@@ -53,7 +54,7 @@ impl CodecUdp for ByteBufCodec {
         Ok((*addr, ByteBuf::from_slice(buf)))
     }
     
-    fn encode(&mut self, item: &Self::Out, into: &mut Vec<u8>) -> SocketAddr {
+    fn encode(&mut self, item: Self::Out, into: &mut Vec<u8>) -> SocketAddr {
         into.extend_from_slice(item.1.bytes());
         into.push('\n' as u8);
         item.0
@@ -91,7 +92,6 @@ fn main() {
 
     let instream =
     stream::iter(inputs.into_iter()).map(|route| {
-    //inputs.into_iter().map(|route| {
         let input : Input = route.get_input();
         let sock = UdpSocket::bind(&input.addr, &handle).unwrap();
         (sock.framed(ByteBufCodec),  route)

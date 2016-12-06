@@ -5,7 +5,7 @@ use std::cmp::min;
 use std::ptr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::io::{self, Read, Write, ErrorKind};
+use std::io::{self, Read, Write, ErrorKind, BufReader};
 use flate2::read::GzDecoder;
 use flate2::write::{GzEncoder};
 use flate2::Compression;
@@ -13,28 +13,53 @@ use std::collections::HashMap;
 use serde_json::value::Value as JValue;
 use serde_json::de;
 use bytes::{ByteBuf, BufMut, Buf};
+use snap;
 
 // this is litte endian for the magic byte pair [0x1e,0x0f]
-static GELFMAGIC : u16 = 0x0f1e;
+enum GelfMagic {
+    Gz = 0x0f1e,
+    Snappy = 0x0f1d,
+    Plain = 0x0f1c
+}
+
+impl GelfMagic {
+    fn from_u16(magic : u16) -> Option<GelfMagic> {
+        match magic {
+            0x0f1e => Some(GelfMagic::Gz),
+            0x0f1d => Some(GelfMagic::Snappy),
+            0x0f1c => Some(GelfMagic::Plain),
+            _ => None
+        }
+    }
+
+    fn decompressor(&self,  r : Message) -> Box<Read> {
+        match *self {
+            GelfMagic::Gz     => Box::new(GzDecoder::new(r).unwrap()) as Box<Read>,
+            GelfMagic::Snappy => Box::new(snap::Reader::new(r)) as Box<Read>,
+            GelfMagic::Plain  => Box::new(BufReader::with_capacity(2048, r)) as Box<Read>,
+        }
+    }
+
+}
 
 type MessageId = u64;
 
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
 struct GelfChunkHeader {
-    magic : u16,
-    id : u64,
-    seq_num : u8,
-    seq_max : u8
+magic : u16,
+      id : u64,
+      seq_num : u8,
+      seq_max : u8
 }
 
 #[derive(Debug, Clone)]
 struct Message {
-    chunks : Vec<Option<(ByteBuf, usize)>>,
-    count : usize,
-    rd_offset : usize,
-    rd_index : usize,
-    timestamp : Instant
+chunks : Vec<Option<(ByteBuf, usize)>>,
+       count : usize,
+       rd_offset : usize,
+       rd_index : usize,
+       timestamp : Instant
 }
 
 impl Message {
@@ -42,7 +67,7 @@ impl Message {
         let v : Vec<Option<(ByteBuf, usize)>> = vec![None; sz as usize];
         Message { chunks : v, rd_offset : 0, rd_index : 0, count : 0, timestamp : Instant::now() }
     }
-    
+
     pub fn new_with_buf(sz : u8, buf : ByteBuf, idx : u8, offset : usize) -> Option<Message> {
         if sz <= idx {
             return None
@@ -100,17 +125,16 @@ impl Read for Message {
 }
 
 
-
 #[derive(Debug)]
 pub struct Parser{
-    chunkmap : HashMap<MessageId, Message>
+chunkmap : HashMap<MessageId, Message>
 }
 
 
 impl Parser {
     pub fn new() -> Parser {
         Parser {
-            chunkmap : HashMap::new()
+chunkmap : HashMap::new()
         }
     }
 
@@ -123,35 +147,37 @@ impl Parser {
             ptr::copy_nonoverlapping(buf.bytes().as_ptr(), hdrp, hdr_sz);
             hdr
         };
-        let msgbuf = 
-            if hdr.magic == GELFMAGIC {
+        let msgreader =
+            if let Some(gelftype) = GelfMagic::from_u16(hdr.magic) {
                 if hdr.seq_max == 1 {
                     Message::new_with_buf(hdr.seq_max, buf, hdr.seq_num, hdr_sz)
+                        .map(|m| gelftype.decompressor(m))
                 } else {
-                    
-                        { 
-                            let m = self.chunkmap.entry(hdr.id).or_insert_with(|| {
-                                Message::new(hdr.seq_max)
-                            });
-                            m.write(buf, hdr.seq_num as usize, hdr_sz).unwrap();
-                            complete = m.full();
-                        } 
 
-                        if complete {
-                            self.chunkmap.remove(&hdr.id)
-                        } else {
-                            None
-                        }
+                    { 
+                        let m = self.chunkmap.entry(hdr.id).or_insert_with(|| {
+                                Message::new(hdr.seq_max)
+                                });
+                        m.write(buf, hdr.seq_num as usize, hdr_sz).unwrap();
+                        complete = m.full();
+                    } 
+
+                    if complete {
+                        // should be safe to unwrap, since we can't be here if there is no chunkmap
+                        self.chunkmap.remove(&hdr.id).map(|m| gelftype.decompressor(m))
+                    } else {
+                        None
+                    }
 
                 } 
 
-            } else { // no header found, so we treat this as just a blob of compressed bytes
+            } else { // no header found, so we treat this as just a blob of plaintext bytes
                 Message::new_with_buf(1, buf, 0, 0)
+                    .map(|m| Box::new(BufReader::with_capacity(2048, m)) as Box<Read> )
             };
-      
-        msgbuf
-            .and_then(|m| GzDecoder::new(m).ok())
-            .and_then(|u| de::from_reader(u).ok())
+
+        msgreader
+            .and_then(|m| de::from_reader(m).ok())
             .map(|jv| Arc::new(jv))
     }
 }
@@ -164,20 +190,20 @@ impl Encoder {
         gze.write(buf).unwrap();
         let compressed = gze.finish().unwrap();
         let numchunks = 
-            { let nc = compressed.len() / chunksz;
-              if compressed.len() % chunksz != 0 { nc + 1 } 
-              else { nc } };
-        compressed.chunks(chunksz).enumerate().map(|(i,b)| {
-            let h = GelfChunkHeader {
-                magic : GELFMAGIC,
-                id : 123456789,
-                seq_num : i as u8,
-                seq_max : numchunks as u8
-            };
-            let hdr = unsafe { 
+        { let nc = compressed.len() / chunksz;
+            if compressed.len() % chunksz != 0 { nc + 1 } 
+            else { nc } };
+            compressed.chunks(chunksz).enumerate().map(|(i,b)| {
+                    let h = GelfChunkHeader {
+                        magic : GelfMagic::Gz as u16,
+                        id : 123456789,
+                        seq_num : i as u8,
+                        seq_max : numchunks as u8
+                    };
+                let hdr = unsafe { 
                 let hdrp = &h as *const _ as *const u8;
                 slice::from_raw_parts(hdrp, mem::size_of::<GelfChunkHeader>())
-            };
+                };
             let mut o = ByteBuf::with_capacity(b.len() + hdr.len());
             o.copy_from_slice(hdr);
             o.copy_from_slice(b);
@@ -203,7 +229,7 @@ mod tests {
     use test::Bencher;
     extern crate test;
 
-    #[test]
+#[test]
     fn message_basic() {
         let mut o = [0_u8; 128];
         let mut b = ByteBuf::with_capacity(512);
@@ -213,8 +239,8 @@ mod tests {
         assert_eq!(30, r);
         assert_eq!(&o[..r], b"012345678901234567890123456789");
     }
-    
-    #[test]
+
+#[test]
     fn message_bad() {
         let mut o = [0_u8; 128];
         let mut b = ByteBuf::with_capacity(512);
@@ -223,8 +249,8 @@ mod tests {
         let r = m.read(&mut o);
         assert_eq!(r.is_err(), true);
     }
-    
-    #[test]
+
+#[test]
     fn message_under() {
         let mut o = [0_u8; 10];
         let mut b = ByteBuf::with_capacity(512);
@@ -235,7 +261,7 @@ mod tests {
         assert_eq!(&o[..r], b"0123456789");
     }
 
-    #[test]
+#[test]
     fn message_even() {
         let mut o = [0_u8; 30];
         let mut b = ByteBuf::with_capacity(512);
@@ -245,8 +271,8 @@ mod tests {
         assert_eq!(30, r);
         assert_eq!(&o[..r], b"012345678901234567890123456789");
     }
-   
-    #[test]
+
+#[test]
     fn message_multi() {
         let mut o1 = [0_u8; 10];
         let mut o2 = [0_u8; 10];
@@ -267,8 +293,8 @@ mod tests {
         let r = m.read(&mut o4);
         assert_eq!(r.unwrap(), 0);
     }
-    
-    #[test]
+
+#[test]
     fn message_multi_offset() {
         let mut o1 = [0_u8; 8];
         let mut o2 = [0_u8; 8];
@@ -289,8 +315,8 @@ mod tests {
         let r = m.read(&mut o4).unwrap();
         assert_eq!(6, r);
     }
-    
-    #[test]
+
+#[test]
     fn message_multi_write() {
         let mut o1 = [0_u8; 8];
         let mut o2 = [0_u8; 8];
@@ -318,8 +344,8 @@ mod tests {
         assert_eq!(6, r);
         assert_eq!(&o4[..r], b"opqrst");
     }
-    
-    #[test]
+
+#[test]
     fn message_multi_big() {
         let mut o1 = [0_u8; 512];
         let mut b1 = ByteBuf::with_capacity(50);
@@ -335,8 +361,8 @@ mod tests {
         assert_eq!(30, r);
         assert_eq!(&o1[..r], b"0123456789abcdefghijklmnopqrst");
     }
-    
-    #[test]
+
+#[test]
     fn message_big() {
         let mut o1 = [0_u8; 9000];
         let mut f = File::open("tests/8ktest.json").unwrap();
@@ -358,8 +384,8 @@ mod tests {
         assert_eq!(sz, r);
         assert_eq!(&o1[..r], data.as_bytes());
     }
-    
-    #[test]
+
+#[test]
     fn message_big_w_offsets() {
         let mut o1 = [0_u8; 9000];
         let mut f = File::open("tests/8ktest.json").unwrap();
@@ -386,7 +412,7 @@ mod tests {
         assert_eq!(&o1[..r], data.as_bytes());
     }
 
-    #[test]
+#[test]
     fn encode_basic() {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
@@ -395,8 +421,8 @@ mod tests {
         let chunks = Encoder::encode(data.as_bytes(), 2000);
         assert_eq!(2, chunks.len());
     }
-    
-    #[test]
+
+#[test]
     fn message_press_decompress() {
         let mut o1 = [0_u8; 9000];
         let mut f = File::open("tests/8ktest.json").unwrap();
@@ -423,7 +449,7 @@ mod tests {
         assert_eq!(&o1[..r], data.as_bytes());
     }
 
-    #[test]
+#[test]
     fn encode_decode_message() {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
@@ -445,8 +471,8 @@ mod tests {
         gze.read_to_string(&mut s).unwrap();
         assert_eq!(s, data);
     }
-    
-    #[test]
+
+#[test]
     fn parser_encode_decode() {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
@@ -462,20 +488,20 @@ mod tests {
             let r = p.parse(c);
             //this should return a value only on the 3rd time through
             assert_eq!(r.is_some(), (i == 2));
-            if let Some(jv) = r { v = jv; }
+            if let Some(jv) = r { v = (*jv).clone(); }
         }
 
         assert!(v.is_array());
         assert_eq!(v.as_array().
-                     unwrap()[0].
-                     as_object().
-                     unwrap()["_id"].
-                     as_str().unwrap(), 
-                   "57e555ef3067346f32332702");
+                unwrap()[0].
+                as_object().
+                unwrap()["_id"].
+                as_str().unwrap(), 
+                "57e555ef3067346f32332702");
 
     }
 
-    #[bench]
+#[bench]
     fn bench_big_multipart(b: &mut Bencher) {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
@@ -483,15 +509,15 @@ mod tests {
         assert!(sz > 8000);
 
         b.iter(|| {
-            let chunks = Encoder::encode(data.as_bytes(), 1500);
-            let mut m = Message::new(chunks.len() as u8);
-            for (i, c) in chunks.into_iter().enumerate() {
+                let chunks = Encoder::encode(data.as_bytes(), 1500);
+                let mut m = Message::new(chunks.len() as u8);
+                for (i, c) in chunks.into_iter().enumerate() {
                 m.write(c, i, mem::size_of::<GelfChunkHeader>()).unwrap();
-            }
-            let unpacked = GzDecoder::new(m).unwrap();
-            let msg : JValue = de::from_reader(unpacked).unwrap();
-            test::black_box(msg);
-        });
+                }
+                let unpacked = GzDecoder::new(m).unwrap();
+                let msg : JValue = de::from_reader(unpacked).unwrap();
+                test::black_box(msg);
+                });
     } 
 }
 
