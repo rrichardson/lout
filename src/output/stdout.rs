@@ -38,15 +38,16 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<Arc<JValue>>) {
 
 fn run(cfg : Table, rx : Receiver<Arc<JValue>>, tid : usize) {
 
-    let brief =      cfg.get("brief").unwrap_or(&Value::Boolean(false)).as_bool().unwrap_or(false);
+    let brief = cfg.get("brief").unwrap_or(&Value::Boolean(false)).as_bool().unwrap_or(false);
 
     if brief {
         let mut count = 0_u64;
         let mut last = Instant::now();
+        let sec = Duration::new(1, 0);
         loop { 
             let _ = rx.recv().unwrap();
             count += 1;
-            if last.elapsed() > Duration::new(1, 0) {
+            if last.elapsed() > sec {
                 last = Instant::now();
                 println!("{} -- {} msgs / sec", tid, count);
                 count = 0;

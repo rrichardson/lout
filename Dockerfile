@@ -1,10 +1,5 @@
-FROM scratch
-ENV SSL_CERT_FILE=/usr/local/ssl/cacert.pem
+FROM debian:jessie
 
-COPY target/x86_64-unknown-linux-musl/release/lout /
-COPY cacert.pem /usr/local/ssl/
-
-#for testing
-#COPY examples/s3.toml /etc/lout/config.toml
+ADD target/release/lout /
 
 ENTRYPOINT ["/lout", "/etc/lout/config.toml"]
