@@ -53,15 +53,15 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let repo_branch =      cfg.get("repo_branch").unwrap_or(&default_branch).as_str().unwrap();
     let batch_max =  cfg.get("batch_max_size")
         .unwrap_or(&Value::Integer(1024 * 1024 * 1024)).as_integer().unwrap() as usize;
-    let batch_secs = cfg.get("batch_secs").unwrap_or(&Value::Integer(600)).as_integer().unwrap() as u64;
+    let batch_minutes = cfg.get("batch_min").unwrap_or(&Value::Integer(10)).as_integer().unwrap() as u64;
     let batch_directory = cfg.get("batch_directory").unwrap_or(&default_batchdir).as_str().unwrap();
     let pachyderm_path = cfg.get("pachyderm_binary_path").unwrap_or(&default_pachyderm_path).as_str().unwrap();
     let pachd_host = cfg.get("pachd_host").unwrap_or(&default_pachd_host).as_str().unwrap();
 
-    let batch_dur = Duration::from_secs(batch_secs);
+    let batch_dur = Duration::from_secs(batch_minutes * 60);
     let mut batchpath = PathBuf::from(batch_directory);
     batchpath.push("pachyderm_batch");
-    error!("Creating batch file at {:?}", batchpath);
+    info!("Creating batch file at {:?}", batchpath);
     let mut batchfile = OpenOptions::new().read(true).append(true).create(true).open(batchpath.clone()).unwrap();
 
     let mut failcount = 0;
@@ -69,7 +69,7 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let to = Duration::from_millis(100);
     let mut last = Instant::now();
     let mut msgstr;
-    while failcount < 20 {
+    while failcount < 10 {
         match rx.recv_timeout(to) {
             Ok(msg) => { 
                 msgstr = ser::to_string(&msg).unwrap_or(String::new());
@@ -83,40 +83,46 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
         }
         if last.elapsed() > batch_dur || (num_bytes + msgstr.len()) > batch_max {
 
-            last = Instant::now();
-            let timestr = UTC::now().to_rfc3339();
-            let name = format!("events.{}min.{}", batch_dur.as_secs() / 60, timestr);
-            let result = Command::new(pachyderm_path)
-                .env("ADDRESS", pachd_host)
-                .arg("put-file")
-                .arg(repo)
-                .arg(repo_branch)
-                .arg(name)
-                .arg("-c")
-                .arg("-f")
-                .arg(batchpath.to_str().unwrap())
-                .output()
-                .unwrap();
+            if num_bytes > 0 {
+                let timestr = UTC::now().to_rfc3339();
+                let name = format!("events.{}min.{}", batch_dur.as_secs() / 60, timestr);
 
-            if !result.status.success() {
-                error!("batch operation {} failed with status code {}.  stderr={},  stdout={}",
-                        pachyderm_path, result.status,
-                        String::from_utf8(result.stderr).unwrap(),
-                        String::from_utf8(result.stdout).unwrap());
-                failcount += 1;
-            }
+                while failcount < 20 {
+                    let result = Command::new(pachyderm_path)
+                        .env("ADDRESS", pachd_host)
+                        .arg("put-file")
+                        .arg(repo)
+                        .arg(repo_branch)
+                        .arg(name.as_str())
+                        .arg("-c")
+                        .arg("-f")
+                        .arg(batchpath.to_str().unwrap())
+                        .output()
+                        .unwrap();
 
-            if num_bytes > batch_max {
+                    if !result.status.success() {
+                        error!("batch operation {} failed with status code {}.  stderr={},  stdout={}",
+                                pachyderm_path, result.status,
+                                String::from_utf8(result.stderr).unwrap(),
+                                String::from_utf8(result.stdout).unwrap());
+                        failcount += 1;
+                    }
+                    else {
+                        failcount = 0;
+                        break
+                    }
+                }
+                batchfile.set_len(0).unwrap();
                 num_bytes = 0
             }
-            batchfile.set_len(0).unwrap();
+            last = Instant::now();
         }
         batchfile.write(msgstr.as_bytes()).unwrap();
         num_bytes += msgstr.len();
     }
 
-    if failcount >= 20 {
-        error!("Failed 20 times attempting to connect. Giving up");
+    if failcount >= 10 {
+        error!("Failed 10 times in a row. Giving up");
     } else {
         error!("Pachyderm output shutting down gracefully");
     }

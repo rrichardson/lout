@@ -1,0 +1,33 @@
+
+[input]
+
+[input.gelf]
+url = "localhost:5555"
+
+
+[output]
+
+[output.pachyderm]
+type = "pachyderm"
+repo = "pd-events"
+repo_branch = "master"
+batch_min = 1
+batch_directory = "."
+#batch_max_size = 1048576
+pachyderm_binary_path = "/"
+pachd_host = "localhost"
+
+[output.stdout]
+brief = true
+type = "stdout"
+buffer_max = 1000
+
+[route]
+
+[route.default]
+input = "gelf"
+output = "pachyderm"
+
+[route.other]
+input = "gelf"
+output = "stdout"
