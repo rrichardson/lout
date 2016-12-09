@@ -2,7 +2,7 @@
 [input]
 
 [input.gelf]
-url = "0.0.0.0:19999"
+url = "0.0.0.0:5555"
 
 
 [output]
@@ -15,15 +15,16 @@ index = "k8s-dev"
 
 [output.stdout]
 type = "stdout"
+brief = true
 
 [route]
 
 [route.es]
 input = "gelf"
 output = "elas"
-if_has_field = "pd_log"
+#if_has_field = "pd_log"
 
 [route.stdout]
 input = "gelf"
 output = "stdout"
-#if_has_field = "pd_event"
+#if_has_field = "pd_log"

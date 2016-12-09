@@ -75,7 +75,7 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
 
     let mut batchpath = PathBuf::from(batch_directory);
     batchpath.push("s3batch");
-    error!("Creating batch file at {:?}", batchpath);
+    println!("Creating batch file at {:?}", batchpath);
     let mut batchfile = OpenOptions::new().read(true).append(true).create(true).open(batchpath).unwrap();
     let mut batch_contents = Vec::<u8>::new();
 
@@ -101,7 +101,7 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
                 //
                 if count > 0 {
                     //hack to work around escaping bug
-                    error!("Connecting to S3 at {}", region);
+                    println!("Connecting to S3 at {}", region);
                     let dcp = match DefaultCredentialsProvider::new() {
                         Ok(result) => { result },
                         Err(err) => {panic!("Failed to discover AWS credentials {}", err) }

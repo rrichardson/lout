@@ -78,6 +78,8 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
         cfghost.to_owned()
     };
 
+    let url = format!("http://{}:{}", host, port);
+
     let mut running = true;
     let mut failcount = 0;
     let mut connected = false;
@@ -85,14 +87,14 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     //Manually create the elasticsearch index. Its ok if this fails, as it probably means the index
     //already exists.
     let client = hyperclient::Client::new();
-    let url = format!("http://{}:{}/{}", host, port, index);
-    if let Err(e) = client.put(&url).body(IDXQUERY).send() {
+    let idxurl = format!("{}/{}", url, index);
+    if let Err(e) = client.put(&idxurl).body(IDXQUERY).send() {
         error!("Failed to create index : {}", e);
     }
 
     while running && failcount < 20 {
-        error!("Connecting to ES at {}:{}", host, port);
-        let mut client = Client::new(&host, port as u32);
+        println!("Connecting to ES at {}", url);
+        let mut client = Client::new(&url).unwrap();
 
         match client.open_index(index) {
             Err(EsError::EsError(err)) => { failcount += 1; error!("Error opening index: {}", err)},
@@ -128,7 +130,7 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
                         _ => {}
                     }
                     let op_duration = op_start.elapsed();
-                    error!("Batch operation took {:?}", op_duration);
+                    info!("Batch operation took {:?}", op_duration);
                     if op_duration > batch_dur {
                         error!("Batch operation took {:?} which is longer than the batch delay {:?}", op_duration, batch_dur);
                     }
