@@ -28,12 +28,12 @@ type = "stdout"
 
 [route]
 
-[route.default]
+[route.s3]
 input = "gelf"
 output = "mys3"
 if_has_key = "pd_event"
 
-[route.default]
+[route.stdout]
 input = "gelf"
 output = "mystdout"
 if_has_key = "pd_log"
