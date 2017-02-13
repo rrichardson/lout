@@ -13,8 +13,8 @@ repo = "pd-events"
 repo_branch = "master"
 batch_min = 1
 batch_directory = "."
-#batch_max_size = 1048576
-pachyderm_binary_path = "/"
+batch_max_size = 1048576
+#pachyderm_binary_path = "./pachctl"
 pachd_host = "localhost"
 
 [output.stdout]

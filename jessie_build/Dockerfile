@@ -1,6 +1,6 @@
-FROM git.permissiondata.com:4567/devops/pachyderm:jessie
+FROM git.permissiondata.com:4567/devops/pachyderm:fedora
 MAINTAINER "Rick Richardson <rrichardson@permissiondata.com>"
 
-ADD target/release/lout /
+COPY target/debug/lout /
 
-ENTRYPOINT ["/lout", "/etc/lout/config.toml"]
+CMD ["/lout", "/etc/lout/config.toml"]

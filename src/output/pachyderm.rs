@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::fs::{OpenOptions};
 use std::io::Write;
 use chrono::UTC;
+use nix::unistd;
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
 static mut CHANNEL: Option<SyncSender<Arc<JValue>>> = None;
@@ -61,7 +62,9 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let batch_dur = Duration::from_secs(batch_minutes * 60);
     let mut batchpath = PathBuf::from(batch_directory);
     batchpath.push("pachyderm_batch");
-    info!("Creating batch file at {:?}", batchpath);
+
+    println!("Creating batch file at {:?}", batchpath);
+
     let mut batchfile = OpenOptions::new().read(true).append(true).create(true).open(batchpath.clone()).unwrap();
 
     let mut failcount = 0;
@@ -69,6 +72,13 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let to = Duration::from_millis(100);
     let mut last = Instant::now();
     let mut msgstr;
+    
+    let mut hostbytes = [0u8; 128];
+    unistd::gethostname(&mut hostbytes).unwrap();
+    let hostname = String::from_utf8(hostbytes.iter().take_while(|c| **c != 0).cloned().collect()).unwrap();
+
+    println!("batching files as host : {}", hostname);
+
     while failcount < 10 {
         match rx.recv_timeout(to) {
             Ok(msg) => { 
@@ -84,16 +94,13 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
         if last.elapsed() > batch_dur || (num_bytes + msgstr.len()) > batch_max {
 
             if num_bytes > 0 {
-                let timestr = UTC::now().to_rfc3339();
-                let name = format!("events.{}min.{}", batch_dur.as_secs() / 60, timestr);
-
-                while failcount < 20 {
+                println!("running batch : pachctl put-file {} {} {} -c -f {}", repo, repo_branch, &hostname, batchpath.to_str().unwrap());
+                while failcount < 10 {
                     let result = Command::new(pachyderm_path)
-                        .env("ADDRESS", pachd_host)
                         .arg("put-file")
                         .arg(repo)
                         .arg(repo_branch)
-                        .arg(name.as_str())
+                        .arg(&hostname)
                         .arg("-c")
                         .arg("-f")
                         .arg(batchpath.to_str().unwrap())
@@ -109,11 +116,15 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
                     }
                     else {
                         failcount = 0;
+                        println!("batch operation succeeded");
                         break
                     }
                 }
+                if failcount >= 10 {
+                    println!("batch operation failed after 10 tries");
+                }
                 batchfile.set_len(0).unwrap();
-                num_bytes = 0
+                num_bytes = 0;
             }
             last = Instant::now();
         }

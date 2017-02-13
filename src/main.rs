@@ -22,6 +22,7 @@ extern crate test;
 extern crate hyper;
 extern crate env_logger;
 extern crate snap;
+extern crate nix;
 
 mod gelf;
 mod route;
@@ -43,6 +44,8 @@ use std::sync::mpsc::TrySendError;
 use tokio_core::net::{UdpSocket, UdpCodec};
 use tokio_core::reactor::{Core};
 use bytes::{ByteBuf, Buf};
+use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct ByteBufCodec;
 
@@ -85,6 +88,7 @@ fn main() {
         process::exit(-1);
     }
 
+    let failcount = Rc::new(AtomicUsize::new(0));
     let handle = core.handle().clone(); 
     let routes = Route::with_config(config);
     let inputs : Vec<Result<Route, io::Error>> = routes.into_iter().map(|(_, v)| Ok(v)).collect();
@@ -96,11 +100,11 @@ fn main() {
         let sock = UdpSocket::bind(&input.addr, &handle).unwrap();
         (sock.framed(ByteBufCodec),  route)
     }).and_then(|(stream, route)| {
+        let fca = failcount.clone();
         let mut parser = gelf::Parser::new();
         stream.filter_map(move |(_addr, buf)| {
             parser.parse(buf)
         }).for_each(move |msg| {
-
             for o in route.get_outputs().iter() {
                 let mut write = false;
                 if let Some(Filter::IfHasField(ref field)) = o.filter {
@@ -113,7 +117,10 @@ fn main() {
                 if write {
                     match o.channel.try_send(msg.clone()) {
                         Ok(()) => () ,
-                        Err(TrySendError::Full(_)) => println!("Failed to send to output {}, buffer is full", o.output_name),
+                        Err(TrySendError::Full(_)) => {
+                            let fc = fca.load(Ordering::Relaxed) + 1;
+                            fca.store(fc, Ordering::Relaxed);
+                            if fc % 100 == 0 { println!("Failed to send to output {}, buffer is full", o.output_name) };},
                         Err(TrySendError::Disconnected(_)) => panic!("Downstream reader has failed for {}", o.output_name)
                     };
                 }
