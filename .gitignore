@@ -1,3 +1,5 @@
 target
 .*.sw*
 .cargo
+schema.json
+tmp/

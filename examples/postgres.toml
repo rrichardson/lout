@@ -1,0 +1,27 @@
+
+[input]
+
+[input.gelf]
+url = "localhost:5555"
+
+
+[output]
+
+[output.pg]
+type = "postgres"
+batch_directory = "./tmp"
+batch_secs = 300
+retry_secs = 30
+buffer_max = 1000000
+db_name = "postgres"
+db_user = "postgres"
+db_pass = "12345678"
+db_host = "localhost"
+json_schema = "./schema.json"
+
+[route]
+
+[route.default]
+input = "gelf"
+output = "pg"
+

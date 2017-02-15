@@ -2,6 +2,7 @@
 #![feature(test)]
 
 #[macro_use] extern crate log;
+#[macro_use] extern crate serde_derive;
 
 extern crate futures;
 extern crate tokio_core;
@@ -19,10 +20,11 @@ extern crate chrono;
 extern crate md5;
 extern crate rustc_serialize;
 extern crate test;
-extern crate hyper;
 extern crate env_logger;
 extern crate snap;
 extern crate nix;
+extern crate postgres;
+extern crate csv;
 
 mod gelf;
 mod route;
@@ -108,7 +110,7 @@ fn main() {
             for o in route.get_outputs().iter() {
                 let mut write = false;
                 if let Some(Filter::IfHasField(ref field)) = o.filter {
-                    if msg.find(field).is_some() {
+                    if msg.pointer(field).is_some() {
                         write = true;
                     }
                 } else {

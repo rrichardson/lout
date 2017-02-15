@@ -10,12 +10,12 @@ use rs_es::error::EsError;
 use std::time::{Duration, Instant};
 use std::sync::mpsc::RecvTimeoutError;
 use std::env;
-use hyper::client as hyperclient;
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
 static mut CHANNEL: Option<SyncSender<Arc<JValue>>> = None;
 static THREAD: Once = ONCE_INIT;
 
+/* we don't really want to create an index  - we'll just let it fail loudly
 static IDXQUERY : &'static str = r#"
 {
   "mappings": {
@@ -30,6 +30,7 @@ static IDXQUERY : &'static str = r#"
   }
 }'
 "#;
+*/
 
 pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<Arc<JValue>>) {
     THREAD.call_once(|| {
@@ -84,13 +85,13 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let mut failcount = 0;
     let mut connected = false;
 
-    //Manually create the elasticsearch index. Its ok if this fails, as it probably means the index
-    //already exists.
+    /*  Don't create a new index
     let client = hyperclient::Client::new();
     let idxurl = format!("{}/{}", url, index);
     if let Err(e) = client.put(&idxurl).body(IDXQUERY).send() {
         error!("Failed to create index : {}", e);
     }
+    */
 
     while running && failcount < 20 {
         println!("Connecting to ES at {}", url);

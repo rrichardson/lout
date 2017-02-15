@@ -5,25 +5,29 @@ authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 
 [dependencies]
 log = "0.3"
-env_logger = "*"
 bytes = { git = "https://github.com/carllerche/bytes" }
 futures = "0.1.6"
 tokio-core = { git = "https://github.com/tokio-rs/tokio-core" }
 #block_allocator = "0.2.2"
 #block-alloc-appendbuf = "0.1"
-serde = "~0.8"
-serde_json = "0.8"
 toml = "0.2"
 time = "0.1"
 byteorder = "0.5"
-rs-es = "0.7.0"
-chrono = "~0.2"
+chrono = "^0.3"
 md5 = "0.2.0"
 rustc-serialize = "0.3.19"
 flate2 = "0.2"
-hyper = "~0.9"
 snap = "0.1"
 nix = "0.7.0"
+csv = "0.14"
+serde = "0.9"
+serde_json = "0.9"
+serde_derive = "0.9"
+postgres = "0.13"
+rusoto = {version = "^0.22", features = ["s3", "sqs"]}
+lazy_static = "^0.2"
+rs-es = "^0.9"
+env_logger = "^0.4"
 
 [profile.release]
 lto = true
@@ -31,8 +35,6 @@ lto = true
 [profile.bench]
 lto = true
 
-[dependencies.rusoto]
-git = "https://github.com/rrichardson/rusoto"
 features = ["s3"]
 
 [dev-dependencies]

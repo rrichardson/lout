@@ -77,7 +77,7 @@ impl Route {
                 Some("s3") => output::s3::spawn(outputtbl.clone()),
                 Some("es") | Some("elasticsearch") => output::es::spawn(outputtbl.clone()),
                 Some("stdout") => output::stdout::spawn(outputtbl.clone()),
-                Some("pachyderm") => output::pachyderm::spawn(outputtbl.clone()),
+                Some("postgres") => output::postgres::spawn(outputtbl.clone()),
                 _ => panic!("{} is not found or is not a valid output type", "route::type" )
             };
             if let Some(field) = routetbl.get("if_has_field") {

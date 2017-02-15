@@ -12,6 +12,7 @@ use std::fs::{OpenOptions};
 use std::string::String;
 use std::path::PathBuf;
 use rusoto::{DefaultCredentialsProvider, Region};
+use rusoto::default_tls_client;
 use rusoto::s3::{S3Client, PutObjectRequest};
 use chrono::UTC;
 use md5;
@@ -77,7 +78,6 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     batchpath.push("s3batch");
     println!("Creating batch file at {:?}", batchpath);
     let mut batchfile = OpenOptions::new().read(true).append(true).create(true).open(batchpath).unwrap();
-    let mut batch_contents = Vec::<u8>::new();
 
     let mut running = true;
     while running {
@@ -106,17 +106,18 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
                         Ok(result) => { result },
                         Err(err) => {panic!("Failed to discover AWS credentials {}", err) }
                     };
-                    let client = S3Client::new(dcp, region);
+                    let client = S3Client::new(default_tls_client().unwrap(), dcp, region);
                     let name = UTC::now().to_rfc3339().replace(":","-").replace("+", "-");
                     let op_start = Instant::now();
                     let _ = batchfile.seek(SeekFrom::Start(0)).unwrap();
+                    let mut batch_contents = Vec::<u8>::with_capacity(batch_max as usize);
                     match batchfile.read_to_end(&mut batch_contents) {
                         Err(why) => panic!("Error opening file to send to S3: {}", why),
                         Ok(_) => {
                             let mut req : PutObjectRequest = Default::default();
                             let hash = md5::compute(batch_contents.as_slice()).to_base64(STANDARD);
                             req.content_md5 = Some(hash);
-                            req.body = Some(batch_contents.as_slice());
+                            req.body = Some(batch_contents);
                             req.key = name.clone();
                             req.bucket = bucket.to_string();
                             if let Err(err) = client.put_object(&req) {
@@ -126,7 +127,6 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
                         }
                     }
                     batchfile.set_len(0).unwrap();
-                    batch_contents.clear();
 
                     let op_duration = op_start.elapsed();
                     error!("Batch operation took {:?}", op_duration);
