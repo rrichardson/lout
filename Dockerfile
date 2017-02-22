@@ -1,1 +1,1 @@
-static_build/Dockerfile
+jessie_build/Dockerfile

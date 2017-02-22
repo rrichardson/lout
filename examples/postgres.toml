@@ -7,16 +7,20 @@ url = "localhost:5555"
 
 [output]
 
+[output.elas]
+host = "localhost"
+batch_secs = 20
+type = "elasticsearch"
+batch_max = 500
+index = "k8s-dev"
+
+
 [output.pg]
 type = "postgres"
 batch_directory = "./tmp"
 batch_secs = 300
 retry_secs = 30
 buffer_max = 1000000
-db_name = "postgres"
-db_user = "postgres"
-db_pass = "12345678"
-db_host = "localhost"
 json_schema = "./schema.json"
 
 [route]
@@ -25,3 +29,6 @@ json_schema = "./schema.json"
 input = "gelf"
 output = "pg"
 
+[rout.to_es]
+input = "gelf"
+output = "elas"

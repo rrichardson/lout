@@ -5,11 +5,13 @@ use std::sync::mpsc::{sync_channel, SyncSender, Receiver};
 use serde_json::Value as JValue;
 use std::time::{Duration, Instant};
 use std::sync::mpsc::RecvTimeoutError;
-use std::fs::{File};
+use std::fs::{self, File};
 use std::path::{Path};
 use postgres::{Connection, TlsMode};
-
+use std::env;
 use output::translator::Translator;
+use std::error::Error;
+
 
 static mut HANDLE: Option<Arc<JoinHandle<()>>> = None;
 static mut CHANNEL: Option<SyncSender<Arc<JValue>>> = None;
@@ -40,17 +42,17 @@ pub fn spawn(cfg: Table) -> (Arc<JoinHandle<()>>, SyncSender<Arc<JValue>>) {
 
 fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let default_dbschema = Value::String("import".to_string());
-    let default_dbhost = Value::String("localhost".to_string());
-    let default_dbname = Value::String("warehouse".to_string());
     let default_batchdir = Value::String("/lout_postgres".to_string());
     let default_schemafile = Value::String("/etc/lout/schema.json".to_string());
 
     let schemafile = cfg.get("json_schema").unwrap_or(&default_schemafile).as_str().unwrap_or("/etc/lout/schema.json");
-    let dbname = cfg.get("db_name").unwrap_or(&default_dbname).as_str().unwrap_or("warehouse");
     let dbschema = cfg.get("db_schema").unwrap_or(&default_dbschema).as_str().unwrap_or("import");
-    let dbhost = cfg.get("db_host").unwrap_or(&default_dbhost).as_str().unwrap_or("localhost");
-    let dbuser = cfg.get("db_user").expect("must supply db_user for postgres config").as_str().unwrap();
-    let dbpass = cfg.get("db_pass").expect("must supply db_pass for postgres config").as_str().unwrap();
+
+    let dbport = env::var("DB_PORT").unwrap_or("5432".to_owned());
+    let dbhost = env::var("DB_HOST").unwrap_or("localhost".to_owned());
+    let dbname = env::var("DB_NAME").expect("Please supply a DB_NAME env var");
+    let dbuser = env::var("DB_USER").expect("Please supply a DB_USER env var");
+    let dbpass = env::var("DB_PASS").expect("Please supply a DB_PASS env var");
 
     let batchdir = cfg.get("batch_directory").unwrap_or(&default_batchdir).as_str().unwrap_or("/lout_postgres");
 
@@ -63,7 +65,11 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
     let batchpath = Path::new(batchdir);
     let to = Duration::from_millis(100);
 
-    let conn = Connection::connect(format!("postgres://{}:{}@{}/{}", dbuser, dbpass, dbhost, dbname), TlsMode::None).unwrap();
+    let conn = Connection::connect(format!("postgres://{}:{}@{}:{}/{}", dbuser, dbpass, dbhost, dbport, dbname), TlsMode::None).unwrap();
+
+    if !batchpath.exists() {
+        fs::create_dir_all(batchpath).unwrap();
+    }
 
     let mut t = Translator::new(
             batchpath,
@@ -71,15 +77,23 @@ fn run(cfg : Table, rx : Receiver<Arc<JValue>>) {
             retry_interval,
             Path::new(schemafile),
             |path, name, num| { 
+                let tablename = name.replace("-", "_");
                 match File::open(path) { 
                     Ok(ref mut csvfile) => {
-                        let sql = format!("COPY {}.{} FROM STDIN CSV HEADER", dbschema, name);
+                        let sql = format!("COPY {}.{} FROM STDIN CSV HEADER", dbschema, tablename);
                         let now = Instant::now();
-                        let stmt = conn.prepare(&sql).unwrap();
-                        stmt.copy_in(&[], csvfile).unwrap();
+                        match conn.prepare(&sql) {
+                            Ok(stmt) => { 
+                                match stmt.copy_in(&[], csvfile) {
+                                    Err(e) => error!("Failed to insert batch into {} : {:?}", tablename, e),
+                                    _ => {}
+                                }
+                            },
+                            Err(e) => error!("Failed to prepare statement : '{}' : {:?}", sql, e)
+                        }
                         let dur = now.elapsed();
                         info!("batch {} - {} records inserted in {} milliseconds",
-                        name, num, dur.subsec_nanos()/1000000);
+                        tablename, num, dur.subsec_nanos()/1000000);
 
                         if dur > batch_interval {
                             error!("bulk insert took longer than batch duration interval");
