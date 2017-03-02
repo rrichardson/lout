@@ -45,22 +45,22 @@ use route::Filter;
 use std::sync::mpsc::TrySendError;
 use tokio_core::net::{UdpSocket, UdpCodec};
 use tokio_core::reactor::{Core};
-use bytes::{ByteBuf, Buf};
+use bytes::{BytesMut, BufMut};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-struct ByteBufCodec;
+struct BytesMutCodec;
 
-impl UdpCodec for ByteBufCodec {
-    type In = (SocketAddr, ByteBuf);
-    type Out = (SocketAddr, ByteBuf);
+impl UdpCodec for BytesMutCodec {
+    type In = (SocketAddr, BytesMut);
+    type Out = (SocketAddr, BytesMut);
 
     fn decode(&mut self, addr : &SocketAddr, buf: &[u8]) -> Result<Self::In, io::Error> {
-        Ok((*addr, ByteBuf::from_slice(buf)))
+        Ok((*addr, BytesMut::from(buf)))
     }
     
     fn encode(&mut self, item: Self::Out, into: &mut Vec<u8>) -> SocketAddr {
-        into.extend_from_slice(item.1.bytes());
+        into.extend_from_slice(&item.1[..]);
         into.push('\n' as u8);
         item.0
     }
@@ -100,7 +100,7 @@ fn main() {
     stream::iter(inputs.into_iter()).map(|route| {
         let input : Input = route.get_input();
         let sock = UdpSocket::bind(&input.addr, &handle).unwrap();
-        (sock.framed(ByteBufCodec),  route)
+        (sock.framed(BytesMutCodec),  route)
     }).and_then(|(stream, route)| {
         let fca = failcount.clone();
         let mut parser = gelf::Parser::new();

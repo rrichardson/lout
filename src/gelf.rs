@@ -12,10 +12,12 @@ use flate2::Compression;
 use std::collections::HashMap;
 use serde_json::value::Value as JValue;
 use serde_json::de;
-use bytes::{ByteBuf, BufMut, Buf};
+use bytes::{BytesMut, BufMut};
+use std::vec::Vec;
 use snap;
 
 // this is litte endian for the magic byte pair [0x1e,0x0f]
+#[derive(Debug, Clone, Copy)]
 enum GelfMagic {
     Gz = 0x0f1e,
     Snappy = 0x0f1d,
@@ -55,7 +57,7 @@ magic : u16,
 
 #[derive(Debug, Clone)]
 struct Message {
-chunks : Vec<Option<(ByteBuf, usize)>>,
+chunks : Vec<Option<(BytesMut, usize)>>,
        count : usize,
        rd_offset : usize,
        rd_index : usize,
@@ -64,24 +66,24 @@ chunks : Vec<Option<(ByteBuf, usize)>>,
 
 impl Message {
     pub fn new(sz : u8) -> Message {
-        let v : Vec<Option<(ByteBuf, usize)>> = vec![None; sz as usize];
+        let v : Vec<Option<(BytesMut, usize)>> = vec![None; sz as usize];
         Message { chunks : v, rd_offset : 0, rd_index : 0, count : 0, timestamp : Instant::now() }
     }
 
-    pub fn new_with_buf(sz : u8, buf : ByteBuf, idx : u8, offset : usize) -> Option<Message> {
+    pub fn new_with_buf(sz : u8, buf : BytesMut, idx : u8, offset : usize) -> Option<Message> {
         if sz <= idx {
             return None
         }
-        let mut v : Vec<Option<(ByteBuf, usize)>> = vec![None; sz as usize];
+        let mut v : Vec<Option<(BytesMut, usize)>> = vec![None; sz as usize];
         v[idx as usize] = Some((buf, offset)); 
         Some(Message { chunks : v, rd_offset : 0, rd_index : 0, count : 1, timestamp : Instant::now() })
     }
 
-    pub fn write(&mut self, buf : ByteBuf, idx : usize, offset : usize) -> Result<usize, io::Error> {
+    pub fn write(&mut self, buf : BytesMut, idx : usize, offset : usize) -> Result<usize, io::Error> {
         if idx >= self.chunks.len() {
             Err(io::Error::new(ErrorKind::Other, format!("index {} out of range for chunks : {}", idx, self.chunks.len() )))
         } else {
-            let len = buf.bytes().len();
+            let len = buf.len();
             self.chunks[idx] = Some((buf, offset)); 
             self.count += 1;
             Ok(len)
@@ -106,13 +108,13 @@ impl Read for Message {
         while dst_offset < buf.len() && self.rd_index < self.chunks.len() {
             if let &Some((ref cb, ref off)) = self.chunks.get(self.rd_index).unwrap() {
                 let src_start = off + self.rd_offset;
-                let amt = min(buf.len() - dst_offset, cb.bytes().len() - src_start);
+                let amt = min(buf.len() - dst_offset, cb.len() - src_start);
                 let dst_end = amt + dst_offset;
                 let src_end = amt + src_start;
-                buf[dst_offset..dst_end].copy_from_slice(&cb.bytes()[src_start..src_end]);
+                buf[dst_offset..dst_end].copy_from_slice(&cb[src_start..src_end]);
                 dst_offset += amt;
                 self.rd_offset += amt;
-                if self.rd_offset >= (cb.bytes().len() - off) {
+                if self.rd_offset >= (cb.len() - off) {
                     self.rd_index += 1;
                     self.rd_offset = 0;
                 }
@@ -134,17 +136,17 @@ chunkmap : HashMap<MessageId, Message>
 impl Parser {
     pub fn new() -> Parser {
         Parser {
-chunkmap : HashMap::new()
+            chunkmap : HashMap::new()
         }
     }
 
-    pub fn parse(&mut self, buf : ByteBuf) -> Option<Arc<JValue>> {
+    pub fn parse(&mut self, buf : BytesMut) -> Option<Arc<JValue>> {
         let complete;
         let hdr_sz = mem::size_of::<GelfChunkHeader>();
         let hdr = unsafe { 
             let hdr : GelfChunkHeader = mem::uninitialized();
             let hdrp = &hdr as *const _ as *mut u8;
-            ptr::copy_nonoverlapping(buf.bytes().as_ptr(), hdrp, hdr_sz);
+            ptr::copy_nonoverlapping(buf.as_ptr(), hdrp, hdr_sz);
             hdr
         };
         let msgreader =
@@ -185,28 +187,46 @@ chunkmap : HashMap::new()
 pub struct Encoder;
 
 impl Encoder {
-    pub fn encode(buf : &[u8], chunksz : usize) -> Vec<ByteBuf> {
+
+    pub fn encode_gz(buf : &[u8], chunksz: usize) -> Vec<BytesMut> {
         let mut gze = GzEncoder::new(Vec::with_capacity(buf.len()), Compression::Fast);
         gze.write(buf).unwrap();
         let compressed = gze.finish().unwrap();
+        Self::encode(compressed.as_slice(), chunksz, GelfMagic::Gz)
+    } 
+    
+    pub fn encode_snappy(buf : &[u8], chunksz: usize) -> Vec<BytesMut> {
+        let mut ibuf = Vec::with_capacity(buf.len());
+        let mut w = snap::Writer::new(ibuf);
+        w.write_all(buf);
+        let ibuf = w.into_inner().unwrap();
+        Self::encode(ibuf.as_slice(), chunksz, GelfMagic::Snappy)
+    } 
+    
+    pub fn encode_plain(buf : &[u8], chunksz: usize) -> Vec<BytesMut> {
+        Self::encode(buf, chunksz, GelfMagic::Plain)
+    }
+    
+    fn encode(compressed : &[u8], chunksz : usize, magic : GelfMagic) -> Vec<BytesMut> {
         let numchunks = 
         { let nc = compressed.len() / chunksz;
             if compressed.len() % chunksz != 0 { nc + 1 } 
-            else { nc } };
-            compressed.chunks(chunksz).enumerate().map(|(i,b)| {
-                    let h = GelfChunkHeader {
-                        magic : GelfMagic::Gz as u16,
-                        id : 123456789,
-                        seq_num : i as u8,
-                        seq_max : numchunks as u8
-                    };
-                let hdr = unsafe { 
+            else { nc } 
+        };
+        compressed.chunks(chunksz).enumerate().map(|(i,b)| {
+            let h = GelfChunkHeader {
+                magic : magic as u16,
+                id : 123456789,
+                seq_num : i as u8,
+                seq_max : numchunks as u8
+            };
+            let hdr = unsafe { 
                 let hdrp = &h as *const _ as *const u8;
                 slice::from_raw_parts(hdrp, mem::size_of::<GelfChunkHeader>())
-                };
-            let mut o = ByteBuf::with_capacity(b.len() + hdr.len());
-            o.copy_from_slice(hdr);
-            o.copy_from_slice(b);
+            };
+            let mut o = BytesMut::with_capacity(b.len() + hdr.len());
+            o.put(hdr);
+            o.put(b);
             o
         }).collect()
     }
@@ -217,7 +237,7 @@ impl Encoder {
 mod tests {
     use super::{Message, Parser, Encoder};
     use super::GelfChunkHeader;
-    use bytes::{ByteBuf, Buf, BufMut};
+    use bytes::{BytesMut, Buf, BufMut};
     use std::io::{Read};
     use std::fmt::Write;
     use std::fs::File;
@@ -226,13 +246,14 @@ mod tests {
     use flate2::write::{GzEncoder};
     use serde_json::value::Value as JValue;
     use serde_json::de;
+    use snap;
     use test::Bencher;
     extern crate test;
 
 #[test]
     fn message_basic() {
         let mut o = [0_u8; 128];
-        let mut b = ByteBuf::with_capacity(512);
+        let mut b = BytesMut::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o).unwrap();
@@ -243,7 +264,7 @@ mod tests {
 #[test]
     fn message_bad() {
         let mut o = [0_u8; 128];
-        let mut b = ByteBuf::with_capacity(512);
+        let mut b = BytesMut::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(3, b, 1, 0).unwrap();
         let r = m.read(&mut o);
@@ -253,7 +274,7 @@ mod tests {
 #[test]
     fn message_under() {
         let mut o = [0_u8; 10];
-        let mut b = ByteBuf::with_capacity(512);
+        let mut b = BytesMut::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o).unwrap();
@@ -264,7 +285,7 @@ mod tests {
 #[test]
     fn message_even() {
         let mut o = [0_u8; 30];
-        let mut b = ByteBuf::with_capacity(512);
+        let mut b = BytesMut::with_capacity(512);
         b.write_str("012345678901234567890123456789");
         let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o).unwrap();
@@ -278,7 +299,7 @@ mod tests {
         let mut o2 = [0_u8; 10];
         let mut o3 = [0_u8; 10];
         let mut o4 = [0_u8; 10];
-        let mut b = ByteBuf::with_capacity(512);
+        let mut b = BytesMut::with_capacity(512);
         b.write_str("0123456789abcdefghijklmnopqrst");
         let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o1).unwrap();
@@ -300,7 +321,7 @@ mod tests {
         let mut o2 = [0_u8; 8];
         let mut o3 = [0_u8; 8];
         let mut o4 = [0_u8; 8]; 
-        let mut b = ByteBuf::with_capacity(512);
+        let mut b = BytesMut::with_capacity(512);
         b.write_str("0123456789abcdefghijklmnopqrst");
         let mut m = Message::new_with_buf(1, b, 0, 0).unwrap();
         let r = m.read(&mut o1).unwrap();
@@ -322,9 +343,9 @@ mod tests {
         let mut o2 = [0_u8; 8];
         let mut o3 = [0_u8; 8];
         let mut o4 = [0_u8; 8]; 
-        let mut b1 = ByteBuf::with_capacity(50);
-        let mut b2 = ByteBuf::with_capacity(50);
-        let mut b3 = ByteBuf::with_capacity(50);
+        let mut b1 = BytesMut::with_capacity(50);
+        let mut b2 = BytesMut::with_capacity(50);
+        let mut b3 = BytesMut::with_capacity(50);
         b1.write_str("0123456789");
         b2.write_str("abcdefghij");
         b3.write_str("klmnopqrst");
@@ -348,9 +369,9 @@ mod tests {
 #[test]
     fn message_multi_big() {
         let mut o1 = [0_u8; 512];
-        let mut b1 = ByteBuf::with_capacity(50);
-        let mut b2 = ByteBuf::with_capacity(50);
-        let mut b3 = ByteBuf::with_capacity(50);
+        let mut b1 = BytesMut::with_capacity(50);
+        let mut b2 = BytesMut::with_capacity(50);
+        let mut b3 = BytesMut::with_capacity(50);
         b1.write_str("0123456789");
         b2.write_str("abcdefghij");
         b3.write_str("klmnopqrst");
@@ -368,10 +389,10 @@ mod tests {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
-        let mut b1 = ByteBuf::with_capacity(2500);
-        let mut b2 = ByteBuf::with_capacity(2500);
-        let mut b3 = ByteBuf::with_capacity(2500);
-        let mut b4 = ByteBuf::with_capacity(2500);
+        let mut b1 = BytesMut::with_capacity(2500);
+        let mut b2 = BytesMut::with_capacity(2500);
+        let mut b3 = BytesMut::with_capacity(2500);
+        let mut b4 = BytesMut::with_capacity(2500);
         b1.write_str(&data[..2500]);
         b2.write_str(&data[2500..5000]);
         b3.write_str(&data[5000..7500]);
@@ -391,10 +412,10 @@ mod tests {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
-        let mut b1 = ByteBuf::with_capacity(2600);
-        let mut b2 = ByteBuf::with_capacity(2600);
-        let mut b3 = ByteBuf::with_capacity(2600);
-        let mut b4 = ByteBuf::with_capacity(2600);
+        let mut b1 = BytesMut::with_capacity(2600);
+        let mut b2 = BytesMut::with_capacity(2600);
+        let mut b3 = BytesMut::with_capacity(2600);
+        let mut b4 = BytesMut::with_capacity(2600);
         b1.write_str("blahblahblah");
         b1.write_str(&data[..2500]);
         b2.write_str("blahblahblah");
@@ -418,7 +439,7 @@ mod tests {
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
         assert!(sz > 8000);
-        let chunks = Encoder::encode(data.as_bytes(), 2000);
+        let chunks = Encoder::encode_gz(data.as_bytes(), 2000);
         assert_eq!(2, chunks.len());
     }
 
@@ -428,10 +449,10 @@ mod tests {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
-        let mut b1 = ByteBuf::with_capacity(2600);
-        let mut b2 = ByteBuf::with_capacity(2600);
-        let mut b3 = ByteBuf::with_capacity(2600);
-        let mut b4 = ByteBuf::with_capacity(2600);
+        let mut b1 = BytesMut::with_capacity(2600);
+        let mut b2 = BytesMut::with_capacity(2600);
+        let mut b3 = BytesMut::with_capacity(2600);
+        let mut b4 = BytesMut::with_capacity(2600);
         b1.write_str("blahblahblah");
         b1.write_str(&data[..2500]);
         b2.write_str("blahblahblah");
@@ -456,7 +477,7 @@ mod tests {
         let sz = f.read_to_string(&mut data).unwrap();
         assert!(sz > 8000);
 
-        let chunks = Encoder::encode(data.as_bytes(), 1500);
+        let chunks = Encoder::encode_gz(data.as_bytes(), 1500);
         assert_eq!(3, chunks.len());
 
         let mut m = Message::new(chunks.len() as u8);
@@ -479,7 +500,7 @@ mod tests {
         let sz = f.read_to_string(&mut data).unwrap();
         assert!(sz > 8000);
 
-        let chunks = Encoder::encode(data.as_bytes(), 1500);
+        let chunks = Encoder::encode_gz(data.as_bytes(), 1500);
         assert_eq!(3, chunks.len());
 
         let mut p = Parser::new();
@@ -502,22 +523,62 @@ mod tests {
     }
 
 #[bench]
-    fn bench_big_multipart(b: &mut Bencher) {
+    fn bench_big_multipart_gz(b: &mut Bencher) {
         let mut f = File::open("tests/8ktest.json").unwrap();
         let mut data = String::new();
         let sz = f.read_to_string(&mut data).unwrap();
         assert!(sz > 8000);
 
+        let chunks = Encoder::encode_gz(data.as_bytes(), 1500);
+        let mut m = Message::new(chunks.len() as u8);
+        for (i, c) in chunks.into_iter().enumerate() {
+            m.write(c, i, mem::size_of::<GelfChunkHeader>()).unwrap();
+        }
         b.iter(|| {
-                let chunks = Encoder::encode(data.as_bytes(), 1500);
-                let mut m = Message::new(chunks.len() as u8);
-                for (i, c) in chunks.into_iter().enumerate() {
-                m.write(c, i, mem::size_of::<GelfChunkHeader>()).unwrap();
-                }
-                let unpacked = GzDecoder::new(m).unwrap();
+                let unpacked = GzDecoder::new(m.clone()).unwrap();
                 let msg : JValue = de::from_reader(unpacked).unwrap();
+                assert_eq!(msg[0]["eyeColor"].as_str().unwrap(), "brown");
                 test::black_box(msg);
                 });
     } 
+
+#[bench]
+    fn bench_big_multipart_snappy(b: &mut Bencher) {
+        let mut f = File::open("tests/8ktest.json").unwrap();
+        let mut data = String::new();
+        let sz = f.read_to_string(&mut data).unwrap();
+        assert!(sz > 8000);
+
+        let chunks = Encoder::encode_snappy(data.as_bytes(), 1500);
+        let mut m = Message::new(chunks.len() as u8);
+        for (i, c) in chunks.into_iter().enumerate() {
+            m.write(c, i, mem::size_of::<GelfChunkHeader>()).unwrap();
+        }
+        b.iter(|| {
+                let unpacked = snap::Reader::new(m.clone());
+                let msg : JValue = de::from_reader(unpacked).unwrap();
+                assert_eq!(msg[0]["eyeColor"].as_str().unwrap(), "brown");
+                test::black_box(msg);
+                });
+    } 
+
+#[bench]
+    fn bench_big_multipart_plain(b: &mut Bencher) {
+        let mut f = File::open("tests/8ktest.json").unwrap();
+        let mut data = String::new();
+        let sz = f.read_to_string(&mut data).unwrap();
+        assert!(sz > 8000);
+
+        let chunks = Encoder::encode_plain(data.as_bytes(), 1500);
+        let mut m = Message::new(chunks.len() as u8);
+        for (i, c) in chunks.into_iter().enumerate() {
+            m.write(c, i, mem::size_of::<GelfChunkHeader>()).unwrap();
+        }
+        b.iter(|| {
+                let msg : JValue = de::from_reader(m.clone()).unwrap();
+                assert_eq!(msg[0]["eyeColor"].as_str().unwrap(), "brown");
+                test::black_box(msg);
+                });
+    }
 }
 

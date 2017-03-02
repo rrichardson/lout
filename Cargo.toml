@@ -5,9 +5,9 @@ authors = ["Rick Richardson <rick.richardson@gmail.com>"]
 
 [dependencies]
 log = "0.3"
-bytes = { git = "https://github.com/carllerche/bytes" }
+bytes = "^0.4"
 futures = "0.1.6"
-tokio-core = { git = "https://github.com/tokio-rs/tokio-core" }
+tokio-core = "^0.1"
 #block_allocator = "0.2.2"
 #block-alloc-appendbuf = "0.1"
 toml = "0.2"
@@ -24,7 +24,7 @@ serde = "0.9"
 serde_json = "0.9"
 serde_derive = "0.9"
 postgres = "0.13"
-rusoto = {version = "^0.22", features = ["s3", "sqs"]}
+rusoto = {version = "^0.23", features = ["s3", "sqs"]}
 lazy_static = "^0.2"
 rs-es = "^0.9"
 env_logger = "^0.4"
@@ -38,5 +38,4 @@ lto = true
 features = ["s3"]
 
 [dev-dependencies]
-env_logger = "0.3.0"
 rand = "0.3.14"
